@@ -1,1 +1,2 @@
-mysql-docker/data/
+__pycache__/
+*_DS_Store
