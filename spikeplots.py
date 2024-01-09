@@ -67,8 +67,8 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells, ell_color=None, ax=None, sd_mu
     if not ax:
         f, ax = plt.subplots(figsize=(5, 5))
 
-    ax.set_xlim(0, 3000)
-    ax.set_ylim(-30, 2250)
+    ax.set_xlim(0, 4000)
+    ax.set_ylim(0, 4000)
     if not ell_color:
         ell_color = np.random.rand(3)
 

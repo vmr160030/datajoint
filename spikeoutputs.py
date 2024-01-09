@@ -84,7 +84,7 @@ class SpikeOutputs(object):
             dataset_name = self.dataset_name
             paramsmatfile = self.paramsmatfile
         self.vcd = vl.load_vision_data(analysis_path=os.path.dirname(paramsfile), dataset_name=dataset_name, include_params=True,
-                                       include_runtimemovie_params=True, include_ei=True)
+                                       include_runtimemovie_params=True, include_ei=False)
         self.N_WIDTH = self.vcd.runtimemovie_params.width
         self.N_HEIGHT = self.vcd.runtimemovie_params.height
         
@@ -203,8 +203,8 @@ class SpikeOutputs(object):
 
         self.stim = {'params': params, 'unique_params': unique_params, 
              'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
-             'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt}
-        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id}
+             'n_total_pts': n_total_pts}
+        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt}
         self.ARR_CELL_IDS = np.array(cluster_id)
         self.GOOD_CELL_IDS = np.array(cluster_id)
         self.N_CELLS = len(self.ARR_CELL_IDS)
@@ -237,11 +237,11 @@ class SpikeOutputs(object):
 
     def print_stim_summary(self):
         # Print stim summary from stim dictionary
-        print('epoch length: ' + str(self.stim['n_total_pts'] * self.stim['n_bin_dt']) + ' ms')
+        print('epoch length: ' + str(self.stim['n_total_pts'] * self.spikes['n_bin_dt']) + ' ms')
         print('Total epochs: ' + str(self.stim['n_epochs']))
-        print('pre: ' + str(self.stim['n_pre_pts'] * self.stim['n_bin_dt']) + ' ms; stim: ' + str(self.stim['n_stim_pts'] * self.stim['n_bin_dt']) + ' ms; tail: ' + str(self.stim['n_tail_pts'] * self.stim['n_bin_dt']) + ' ms')
+        print('pre: ' + str(self.stim['n_pre_pts'] * self.spikes['n_bin_dt']) + ' ms; stim: ' + str(self.stim['n_stim_pts'] * self.spikes['n_bin_dt']) + ' ms; tail: ' + str(self.stim['n_tail_pts'] * self.spikes['n_bin_dt']) + ' ms')
         print('pre pts: ' + str(self.stim['n_pre_pts']) + '; stim pts: ' + str(self.stim['n_stim_pts']) + '; tail pts: ' + str(self.stim['n_tail_pts']))
-        print('bin rate: ' + str(self.stim['bin_rate']) + ' Hz; bin dt: ' + str(self.stim['n_bin_dt']) + ' ms')
+        print('bin rate: ' + str(self.spikes['bin_rate']) + ' Hz; bin dt: ' + str(self.spikes['n_bin_dt']) + ' ms')
         
     def save(self, str_path: str=None):
         if not str_path:
@@ -267,34 +267,37 @@ class SpikeOutputs(object):
         type_IDs = self.types.d_main_IDs[str_type]
         n_type_cells = len(type_IDs)
 
-        arr_rfs = [(self.d_sta[str_ID]['x0'], self.d_sta[str_ID]['y0']) for str_ID in type_IDs]
-
-        # Copy of RFs
-        # Loop through copy. While loop through original. If distance < thresh, remove from original.
+        rfs = [(self.d_sta[str_ID]['x0'], self.d_sta[str_ID]['y0']) for str_ID in type_IDs]
 
         # Compute pairwise distance between all RFs
         arr_dist = np.zeros((n_type_cells, n_type_cells))
-        # Get triu indices
-        # triu_idx = np.triu_indices(n_type_cells, k=1) This gives some bugs
-        triu_idx = (range(n_type_cells), range(n_type_cells))
-        for i in triu_idx[0]:
-            for j in triu_idx[1]:
-                arr_dist[i, j] = np.sqrt((arr_rfs[i][0] - arr_rfs[j][0])**2 + (arr_rfs[i][1] - arr_rfs[j][1])**2)
+        arr_dist[:] = np.inf
 
+        dist_idx = (range(n_type_cells), range(n_type_cells))
+        for i in dist_idx[0]:
+            for j in dist_idx[1]:
+                if i != j:
+                    arr_dist[i, j] = np.sqrt((rfs[i][0] - rfs[j][0])**2 + (rfs[i][1] - rfs[j][1])**2)
 
-        # Remove IDs with distance < thresh, keeping only the first one
-        arr_keep = np.ones(n_type_cells, dtype=bool)
-        for i in triu_idx[0]:
-            for j in triu_idx[1]:
-                if arr_dist[i, j] < thresh and i != j:
-                    arr_keep[j] = False
-
-        arr_keep_IDs = type_IDs[arr_keep]
-
-        # Print summary
-        print(f'Number of {str_type} cells: {len(arr_keep_IDs)} of {len(type_IDs)}')
-
-        return arr_keep_IDs
-
-       
+        # Copy of RFs and dist
+        dedup_idx = np.arange(n_type_cells)
+        dedup_dist = arr_dist.copy()
         
+        # While loop through copy. If distance < thresh, remove from copy.
+        while np.any(dedup_dist < thresh):
+            # Find min dist
+            min_idx = np.unravel_index(np.argmin(dedup_dist), dedup_dist.shape)
+            
+            # Remove row from copy
+            dedup_dist = np.delete(dedup_dist, min_idx[0], axis=0)
+            
+            # Remove from idx
+            dedup_idx = np.delete(dedup_idx, min_idx[0])
+
+        # Save deduped IDs
+        dedup_id = np.array([type_IDs[i] for i in dedup_idx])
+
+        # Update data
+        self.types.d_main_IDs[str_type+'_dd'] = dedup_id
+
+        return dedup_dist
