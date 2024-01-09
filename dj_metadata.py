@@ -3,6 +3,7 @@ import glob
 import os
 import numpy as np
 import json
+import pandas as pd
 
 dj.config['database.host'] = '127.0.0.1'
 dj.config['database.user'] = 'root'
@@ -111,7 +112,7 @@ def get_new_metadata(ls_json):
 
     return arr_newdates
 
-def load_metadata(str_metadata_dir):
+def load_metadata(str_metadata_dir, verbose=False):
     # Get json files with dates not already in Experiment
     ls_json = glob.glob(os.path.join(str_metadata_dir, '*.json'))
     arr_newdates = get_new_metadata(ls_json)
@@ -169,11 +170,12 @@ def load_metadata(str_metadata_dir):
                             ls_block_data.append(d_bdata.copy())
                     # Print any exception
                     except Exception as e:
-                        print('Error in protocol')                        
-                        print(str_experiment)
-                        print(protocol['label'])
-                        print(d_group['label'])
-                        print(e)
+                        if verbose:
+                            print('Error in protocol')                        
+                            print(str_experiment)
+                            print(protocol['label'])
+                            print(d_group['label'])
+                            print(e)
                 ls_protocol_data.append(d_pdata.copy())
 
     Protocol.insert(ls_protocol_data, skip_duplicates=True)
@@ -183,9 +185,10 @@ def load_metadata(str_metadata_dir):
         try:
             EpochBlock.insert1(ls_block_data[idx], skip_duplicates=True)
         except:
-            print('Error in adding to EpochBlock')
-            print(idx)
-            print(ls_block_data[idx])
+            if verbose:
+                print('Error in adding to EpochBlock')
+                print(idx)
+                print(ls_block_data[idx])
     
     print(f'Added {len(ls_new_json)} new experiments')
     
@@ -210,9 +213,10 @@ def load_metadata(str_metadata_dir):
                     d_chunk_data['protocol_id'] = (EpochBlock() & f'data_file = "{d_chunk_data["data_file"]}"' & f'date_id="{str_experiment}"').fetch('protocol_id')[0]
                     ls_chunk_data.append(d_chunk_data.copy())
                 except Exception as e:
-                    print('Error in SortingChunk information')
-                    print(d_chunk_data)
-                    print(e)
+                    if verbose:
+                        print('Error in SortingChunk information')
+                        print(d_chunk_data)
+                        print(e)
     SortingChunk.insert(ls_chunk_data, skip_duplicates=True)
 
 def load_typing(ANALYSIS_PATH, verbose=False):
@@ -221,6 +225,7 @@ def load_typing(ANALYSIS_PATH, verbose=False):
     import celltype_io as ctio
 
     ls_RGC_labels = ['OnP', 'OffP', 'OnM', 'OffM', 'SBC']
+    ls_typing_keys = ['num_on_p', 'num_off_p', 'num_on_m', 'num_off_m', 'num_sbc']
 
     str_noise_protocol = 'manookinlab.protocols.FastNoise'
     # Get noise chunks
@@ -265,11 +270,12 @@ def load_typing(ANALYSIS_PATH, verbose=False):
                             d_insert['num_cells'] = types.arr_types.shape[0] # TODO get actual num cells from paramsf file?
                             d_insert['num_goodcells'] = types.arr_types.shape[0] # TODO ISI rejection
 
-                            d_insert['num_on_p'] = len(types.d_main_IDs['OnP'])
-                            d_insert['num_off_p'] = len(types.d_main_IDs['OffP'])
-                            d_insert['num_on_m'] = len(types.d_main_IDs['OnM'])
-                            d_insert['num_off_m'] = len(types.d_main_IDs['OffM'])
-                            d_insert['num_sbc'] = len(types.d_main_IDs['SBC'])
+                            for idx, str_key in enumerate(ls_typing_keys):
+                                # Check if key is in types.d_main_IDs
+                                if ls_RGC_labels[idx] in types.d_main_IDs.keys():
+                                    d_insert[str_key] = len(types.d_main_IDs[ls_RGC_labels[idx]])
+                                elif verbose:
+                                    print(f'No {ls_RGC_labels[idx]} in {date_id} {chunk_id} {str_data_files} {str_typing_file}')
 
                             CellTyping.insert1(d_insert, skip_duplicates=True)
                             print(f'Inserted {date_id} {chunk_id} {str_data_files} {str_typing_file}')
@@ -278,4 +284,30 @@ def load_typing(ANALYSIS_PATH, verbose=False):
                             print(f'Error in {date_id} {chunk_id} {str_data_files} {str_typing_file}')
                             print(e)
 
+def make_df_celltyping(df_meta, verbose=False):
+    """Construct dataframe of cell typing files from metadata.
+
+    Args:
+        df_meta (pd.DataFrame): df_meta output from chunk_id_protocol method
+    """
+    # get all unique chunks for each date_id
+    arr_dates = df_meta.index.get_level_values('date_id').unique().values
+    d_chunks = {date_id: df_meta.loc[pd.IndexSlice[date_id, :, :, :], 'chunk_id'].unique() 
+                for date_id in arr_dates}
+    
+    # Create dataframe of cell typing for those chunks
+    ls_df_ct = []
+    arr_dates = list(d_chunks.keys())
+    for date_id in arr_dates:
+        arr_chunks = d_chunks[date_id]
+        for chunk_id in arr_chunks:
+            df_ct = (CellTyping() & f"date_id='{date_id}'" & f"chunk_id='{chunk_id}'").fetch(format='frame')
+            if df_ct.shape[0] > 0:
+                ls_df_ct.append(df_ct)
+            elif verbose:
+                print(f"no cell typing for {date_id} {chunk_id}")
+
+    df_ct = pd.concat(ls_df_ct)
+
+    return df_ct
 
