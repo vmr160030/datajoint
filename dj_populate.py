@@ -7,9 +7,7 @@ import json
 import visionloader as vl
 import dj_metadata as djm
 import sys
-sys.path.append('/Users/riekelabbackup/Desktop/Vyom/MEA/src/analysis/protocol/')
 import crf_analysis as crf
-sys.path.append('/Users/riekelabbackup/Desktop/Vyom/mea_data_analysis/protocol_analysis/')
 import celltype_io as ctio
 
 dj.config['database.host'] = '127.0.0.1'
@@ -80,7 +78,7 @@ def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False):
 
     # Get noise chunks
     df_noise = (djm.DataFile() & ls_protocol_query).fetch(format='frame')
-    arr_typingfiles = djm.CellTyping().fetch('typing_file')
+    existing_typingfiles = djm.CellTyping().fetch('typing_file')
 
     # For each unique date_id
     for date_id in df_noise.index.get_level_values('date_id').unique():
@@ -109,9 +107,13 @@ def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False):
                 print(f'No typing file for {date_id} {chunk_id} {str_data_files}')
             
             # If typing file exists, insert with num_cells
-            else:                
+            else:
+                # Count files not in existing_typingfiles
+                n_new = len([x not in existing_typingfiles for x in ls_typing_files])
+                if n_new > 0 and verbose:
+                    print(f'Found {n_new} new typing files for {date_id} {chunk_id}')
                 for str_typing_file in ls_typing_files:
-                    if str_typing_file not in arr_typingfiles:
+                    if str_typing_file not in existing_typingfiles:
                         d_insert['algorithm'] = os.path.basename(os.path.dirname(str_typing_file))
                         d_insert['b_typing_file_exists'] = True
                         d_insert['typing_file'] = str_typing_file
@@ -148,8 +150,7 @@ def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False):
                         djm.Cell.insert(ls_cellid_data, skip_duplicates=True)
                         djm.CellType.insert(ls_ct_data, skip_duplicates=True)
 
-def load_typing_notes(str_csv='/Users/riekelabbackup/Desktop/Vyom/SortedData - Sheet1.csv',
-                      verbose=False):
+def load_typing_notes(str_csv, verbose=False, b_pop_multiple=False):
     df = pd.read_csv(str_csv)
 
     # Fill in blank experiment values with unique above
@@ -175,15 +176,22 @@ def load_typing_notes(str_csv='/Users/riekelabbackup/Desktop/Vyom/SortedData - S
         if len(search)==1:
             quality = search['Quality'].values[0]
             typing = search['Typing'].values[0]
-            if pd.isna(quality) or pd.isna(typing):
-                if verbose:
-                    print(f'No quality or typing found for {entry["date_id"]} {entry["chunk_id"]}')
-                continue
             d_insert['quality'] = quality
+            if pd.isna(typing):
+                typing = 'Unknown'
             d_insert['typing_status'] = typing
             ls_insert.append(d_insert.copy())
         elif len(search)>1 and verbose:
             print(f'Multiple matches found for {entry["date_id"]} {entry["chunk_id"]}')
+            if b_pop_multiple:
+                for idx in search.index:
+                    quality = search['Quality'].values[idx]
+                    typing = search['Typing'].values[idx]
+                    d_insert['quality'] = quality
+                    if pd.isna(typing):
+                        typing = 'Unknown'
+                    d_insert['typing_status'] = typing
+                    ls_insert.append(d_insert.copy())
         elif len(search)==0 and verbose:
             print(f'No match found for {entry["date_id"]} {entry["chunk_id"]}')
 
@@ -255,7 +263,8 @@ def load_sta_fits(str_date, str_chunk, str_algo='kilosort2'):
     d_insert = {'date_id': str_date, 'chunk_id': str_chunk, 'algorithm': str_algo, 
                 'noise_grid_size': vcd.runtimemovie_params.micronsPerStixelX,
                 'noise_height': vcd.runtimemovie_params.height, 'noise_width': vcd.runtimemovie_params.width}
-    d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta'}
+    d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta',
+                'red_time_course': 'RedTimeCourse', 'green_time_course': 'GreenTimeCourse', 'blue_time_course': 'BlueTimeCourse'}
     ls_ids = vcd.get_cell_ids()
     add_cellids(str_date, str_chunk, str_algo, ls_ids)
     ls_insert = []

@@ -143,7 +143,8 @@ class SpikeOutputs(object):
         self.NOISE_GRID_SIZE = df_sta['noise_grid_size'].iloc[0] # Typically 30 microns. 
         
         # Load RF fit parameters from datajoint
-        d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta'}
+        d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta',
+            'red_time_course': 'RedTimeCourse', 'green_time_course': 'GreenTimeCourse', 'blue_time_course': 'BlueTimeCourse'}
         d_sta = {}
         for n_id in df_sta.index:
             d_sta[n_id] = {}

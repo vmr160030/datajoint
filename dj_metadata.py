@@ -4,6 +4,7 @@ import os
 import numpy as np
 import json
 import sys
+import pandas as pd
 
 dj.config['database.host'] = '127.0.0.1'
 dj.config['database.user'] = 'root'
@@ -118,7 +119,7 @@ class TypingNotes(dj.Manual):
     -> CellTyping
     ---
     quality: varchar(200)
-    typing_status: varchar(200) 
+    typing_status=null: varchar(200) 
     """
 
 @schema
@@ -261,14 +262,6 @@ def search_protocol(str_search):
             ls_search_protocols.append(str_protocol)
     return ls_search_protocols
 
-def chunk_id_protocol(ls_protocol_ids, format='frame'):
-    df_chunk = (SortingChunk() & [f'protocol_id = "{str_protocol_id}"' for str_protocol_id in ls_protocol_ids]).fetch(format='frame')
-    df_epoch = (EpochBlock() & [f'protocol_id = "{str_protocol_id}"' for str_protocol_id in ls_protocol_ids]).fetch(format='frame')
-
-    # Join
-    df_meta = df_chunk.join(df_epoch)
-    return df_meta
-
 def get_new_metadata(ls_json):
     ls_dates = [os.path.basename(str_json).split('.')[0] for str_json in ls_json]
 
@@ -400,6 +393,15 @@ def load_metadata(str_metadata_dir):
     print(f'Added {len(ls_new_json)} new experiments')
 
 
+def meta_from_protocol(ls_protocol_ids):
+    df_chunk = (DataFile() & [f'protocol_id = "{str_protocol_id}"' for str_protocol_id in ls_protocol_ids]).fetch(format='frame')
+    df_epoch = (EpochBlock() & [f'protocol_id = "{str_protocol_id}"' for str_protocol_id in ls_protocol_ids]).fetch(format='frame')
+
+    # Join
+    df_meta = df_chunk.join(df_epoch)
+    return df_meta
+
+
 def query_epochs(str_param, str_val, str_compare='=', str_date=None, str_datafile=None, str_protocol=None, b_AND=True):
     # Construct epoch table query
     ls_query = [f"parameters->>'$.{str_param}'{str_compare}{str_val}"]
@@ -413,3 +415,48 @@ def query_epochs(str_param, str_val, str_compare='=', str_date=None, str_datafil
     if b_AND:
         ls_query = dj.AndList(ls_query)
     return Epoch & ls_query
+
+
+def meta_from_epochs(epochs):
+    meta = epochs.fetch("date_id", "data_file")
+    # Get unique date, data_file pairs
+    meta = np.array(meta).astype(str)
+    dates, data_files = np.unique(meta, axis=1)
+    df_block = (EpochBlock() & [f'data_file="{data_file}"' for data_file in data_files] & [f'date_id="{date}"' for date in dates]).fetch(format='frame')
+    df_chunk = (DataFile() & [f'data_file="{data_file}"' for data_file in data_files] & [f'date_id="{date}"' for date in dates]).fetch(format='frame')
+
+    chunk_data_files = df_chunk.index.get_level_values('data_file')
+    if len(chunk_data_files) != len(data_files):
+        not_found = np.setdiff1d(data_files, chunk_data_files)
+        print(f'Chunk_id not found for data files: {not_found}')
+
+    df_meta = df_chunk.join(df_block)
+
+    return df_meta
+
+def celltyping_from_meta(df_meta, verbose=False):
+    """Construct dataframe of cell typing files from metadata.
+
+    Args:
+        df_meta (pd.DataFrame): df_meta output from chunk_id_protocol method
+    """
+    # get all unique chunks for each date_id
+    arr_dates = df_meta.index.get_level_values('date_id').unique().values
+    d_chunks = {date_id: df_meta.loc[date_id].index.get_level_values('chunk_id').unique() 
+                for date_id in arr_dates}
+    
+    # Create dataframe of cell typing for those chunks
+    ls_df_ct = []
+    arr_dates = list(d_chunks.keys())
+    for date_id in arr_dates:
+        arr_chunks = d_chunks[date_id]
+        for chunk_id in arr_chunks:
+            df_ct = (CellTyping() & f"date_id='{date_id}'" & f"chunk_id='{chunk_id}'").fetch(format='frame')
+            if df_ct.shape[0] > 0:
+                ls_df_ct.append(df_ct)
+            elif verbose:
+                print(f"no cell typing for {date_id} {chunk_id}")
+
+    df_ct = pd.concat(ls_df_ct)
+
+    return df_ct
