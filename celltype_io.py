@@ -9,7 +9,13 @@ import numpy as np
 class CellTypes(object):
     def __init__(self, str_txt, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM']):
         self.str_txt = str_txt
-        self.arr_types = np.loadtxt(str_txt, dtype=str)
+        try:
+            self.arr_types = np.loadtxt(str_txt, dtype=str)
+        except Exception as e:
+            print('Error reading file: {}'.format(e))
+            self.arr_types = np.array([])
+            self.d_types = {}
+
 
         # self.ls_RGC_labels = ['OffP', 'OffM', 'OnP', 'OnM']
         self.ls_RGC_labels = ls_RGC_labels

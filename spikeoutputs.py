@@ -13,22 +13,38 @@ import celltype_io as ctio
 import symphony_data as sd
 import matplotlib.pyplot as plt
 
+def dict_list_to_array(d):
+    # Convert dictionary of lists to dictionary of arrays
+    d_array = {}
+    for key in d.keys():
+        d_array[key] = np.array(d[key])
+    return d_array
+
 class SpikeOutputs(object):
     def __init__(self, str_experiment, str_datafile=None, str_protocol=None, str_algo=None,
                  paramsfile=None, dataset_name=None, paramsmatfile=None,
                  str_classification=None, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
-                 str_chunk=None, ls_filenames=None):
+                 str_chunk=None, ls_filenames=None, str_noise_protocol='manookinlab.protocols.SpatialNoise',
+                 ls_noise_filenames=None):
         self.str_experiment = str_experiment
         self.str_datafile = str_datafile
         self.str_protocol = str_protocol
         self.str_algo = str_algo
+        self.str_noise_protocol = str_noise_protocol # TODO: better method for setting this from metadata
 
         self.paramsfile = paramsfile
         self.dataset_name = dataset_name
         self.paramsmatfile = paramsmatfile
         self.str_chunk = str_chunk
         self.ls_filenames = ls_filenames
+        self.ls_noise_filenames = ls_noise_filenames
         self.ls_RGC_labels = ls_RGC_labels
+
+        self.stim = {}
+        self.spikes = {}
+        self.isi = {}
+
+        self.ARR_CELL_IDS = np.array([])
 
         # Load classifications if provided
         if str_classification is not None:
@@ -56,35 +72,25 @@ class SpikeOutputs(object):
 
             else:
                 raise ValueError('Data file must be .mat or .p')
-            self.ARR_CELL_IDS = np.array(self.spikes['cluster_id']).flatten()
+            self.ARR_CELL_IDS = np.union1d(np.array(self.spikes['cluster_id']).flatten(), self.ARR_CELL_IDS)
             self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
             self.N_CELLS = len(self.ARR_CELL_IDS)
-
-    def exclude_isi_violations(self, n_bin_max=4, refractory_threshold=0.1):
-        # acf has 0.5ms bins, n_bin_max is index of bins to count spikes upto. 4 means first four bins will be included.
-        # Calculate the percentage of spikes that violate refractoriness (<2ms isi)
-        acf = self.spikes['acf']
-        pct_refractory = np.sum(acf[:,:n_bin_max], axis=1) * 100
-        # May have to play with the cutoff
-        idx_bad = np.argwhere((pct_refractory > refractory_threshold))[:,0]
-        
-        # Remove bad IDs from ARR_CELL_IDs
-        self.pct_refractory = pct_refractory
-        self.bad_isi_idx = idx_bad
-        self.bad_isi_ids = self.ARR_CELL_IDS[idx_bad]
-        self.good_isi_idx = np.delete(np.arange(self.N_CELLS), idx_bad)
-        self.GOOD_CELL_IDS = np.delete(self.ARR_CELL_IDS, idx_bad)
-        self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
-
-        print(f'Of {self.N_CELLS} cells, {len(idx_bad)} cells removed and {self.N_GOOD_CELLS} cells remaining.')
     
-    def load_sta(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None):
+    def load_sta(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
+                 isi_bin_edges=None, load_ei=False):
         if not paramsfile:
             paramsfile = self.paramsfile
             dataset_name = self.dataset_name
             paramsmatfile = self.paramsmatfile
-        self.vcd = vl.load_vision_data(analysis_path=os.path.dirname(paramsfile), dataset_name=dataset_name, include_params=True,
-                                       include_runtimemovie_params=True, include_ei=False)
+        # Check that globals file exists
+        str_globals = os.path.join(os.path.dirname(paramsfile), f'{dataset_name}.globals')
+        if not os.path.exists(str_globals):
+            raise ValueError(f'{str_globals} does not exist.')
+        
+        print(f'Loading STA from {paramsfile}...')
+        self.vcd = vl.load_vision_data(analysis_path=os.path.dirname(paramsfile), dataset_name=dataset_name, 
+                                       include_params=True, include_runtimemovie_params=True, include_ei=load_ei,
+                                       include_neurons=True)
         self.N_WIDTH = self.vcd.runtimemovie_params.width
         self.N_HEIGHT = self.vcd.runtimemovie_params.height
         
@@ -92,11 +98,18 @@ class SpikeOutputs(object):
         self.NOISE_GRID_SIZE = self.vcd.runtimemovie_params.micronsPerStixelX # Typically 30 microns. 
         
         # Load RF fit parameters from .params file
-        self.d_sta = self.vcd.main_datatable
+        # Get only IDs of cells that have RF fits
+        d_sta = {}
+        for n_id in self.vcd.main_datatable.keys():
+            if 'x0' in self.vcd.main_datatable[n_id].keys():
+                d_sta[n_id] = self.vcd.main_datatable[n_id]
+        self.d_sta = d_sta
         sta_cell_ids = list(self.d_sta.keys())
+        print(f'Loaded STA for {len(sta_cell_ids)} cells.')
 
         # Load _params.mat. 
         if paramsmatfile:
+            print(f'Loading STA params from {paramsmatfile}...')
             self.d_params = hdf5storage.loadmat(paramsmatfile)
                 
             # Get spatial maps of cells
@@ -109,75 +122,50 @@ class SpikeOutputs(object):
             self.d_sta_convex_hull = {}
             for idx_ID, n_ID in enumerate(sta_cell_ids):
                 self.d_sta_convex_hull[n_ID] = self.d_params['hull_vertices'][idx_ID, :,:]
+
+            print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
                 
-
-        if 'noise' in self.str_protocol.lower():
-            self.ARR_CELL_IDS = np.array(sta_cell_ids)
-            self.GOOD_CELL_IDS = np.array(sta_cell_ids)
-            self.N_CELLS = len(self.ARR_CELL_IDS)
-            self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
-        # else:
-        #     # Get cell IDs that appear in both protocol and STA
-        #     self.ARR_COMMON_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, sta_cell_ids)
-        #     self.N_COMMON_CELLS = self.ARR_COMMON_CELL_IDS.shape[0]
-
-    def filter_low_nspikes_noise(self, n_percentile=10):
-        # Filter cells with low number of spikes in noise protocol for each cell type
-        print('Filtering low noise nspikes cells...')
-        for idx_t, str_type in enumerate(self.ls_RGC_labels):
-            type_IDs = self.types.d_main_IDs[str_type]
-            
-            arr_nSpikes = np.array([self.vcd.main_datatable[str_ID]['EI'].n_spikes for str_ID in type_IDs])
-            n_cutoff = np.percentile(arr_nSpikes, n_percentile)
-            arr_keep = arr_nSpikes > n_cutoff
-
-            # Update type IDs
-            self.types.d_main_IDs[str_type] = type_IDs[arr_keep]
-            print(f'{arr_keep.sum()} / {len(type_IDs)} {str_type} cells are kept.')
-
-            # Update good cell IDs by deleting type_IDs not kept
-            self.GOOD_CELL_IDS = np.delete(self.GOOD_CELL_IDS, 
-                                           np.argwhere(np.isin(self.GOOD_CELL_IDS, type_IDs[~arr_keep])))
-        
+        self.ARR_CELL_IDS = np.union1d(np.array(sta_cell_ids), self.ARR_CELL_IDS)
+        self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
+        self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
-        print('Done.')
 
+        # Load STA ISI
+        if isi_bin_edges is not None:
+            print(f'Loading STA ISI...')
+            self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
 
-    def filter_low_crf_f1(self, crf_datafile, n_percentile=10, contrast=0.05):
-        # Filter cells with low F1 amplitude for specified contrast
-        print('Filtering low CRF F1 cells...')
-        # Load crf datafile
-        with open(crf_datafile, 'rb') as f:
-            d_crf = pickle.load(f)
-        crf_ids = d_crf['cluster_id']
-        contrast_vals = d_crf['unique_params']['contrast']
-        idx_contrast = np.argwhere(contrast_vals == contrast)[0][0]
-
-        # Get F1 amplitudes for each cell type
-        for idx_t, str_type in enumerate(self.ls_RGC_labels):
-            type_IDs = self.types.d_main_IDs[str_type]
-            
-            # arr_nSpikes = np.array([self.vcd.main_datatable[str_ID]['EI'].n_spikes for str_ID in type_IDs])
-            type_idx = ctio.map_ids_to_idx(type_IDs, crf_ids)
-            arr_f1 = d_crf['4Hz_amp'][type_idx, idx_contrast]
-            
-            n_cutoff = np.percentile(arr_f1, n_percentile)
-            arr_keep = arr_f1 > n_cutoff
-
-            # Update type IDs
-            self.types.d_main_IDs[str_type] = type_IDs[arr_keep]
-            print(f'{arr_keep.sum()} / {len(type_IDs)} {str_type} cells are kept.')
-
-            # Update good cell IDs by deleting type_IDs not kept
-            self.GOOD_CELL_IDS = np.delete(self.GOOD_CELL_IDS, 
-                                           np.argwhere(np.isin(self.GOOD_CELL_IDS, type_IDs[~arr_keep])))
+    def load_sta(self, df_sta, isi_bin_edges=None):
+        print(f'Loading STA from datajoint')
         
+        self.N_WIDTH = df_sta['noise_width'].iloc[0]
+        self.N_HEIGHT = df_sta['noise_height'].iloc[0]
+        self.NOISE_GRID_SIZE = df_sta['noise_grid_size'].iloc[0] # Typically 30 microns. 
+        
+        # Load RF fit parameters from datajoint
+        d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta'}
+        d_sta = {}
+        for n_id in df_sta.index:
+            d_sta[n_id] = {}
+            for str_df, str_vcd in d_keymap.items():
+                d_sta[n_id][str_vcd] = df_sta.loc[n_id, str_df]
+
+        self.d_sta = d_sta
+        sta_cell_ids = list(self.d_sta.keys())
+        print(f'Loaded STA for {len(sta_cell_ids)} cells.')
+                
+        self.ARR_CELL_IDS = np.union1d(np.array(sta_cell_ids), self.ARR_CELL_IDS)
+        self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
+        self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
-        self.d_crf = d_crf
-        print('Done.')
 
+        # Load STA ISI
+        if isi_bin_edges is not None:
+            print(f'Loading STA ISI...')
+            self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
+        
 
-    def load_psth(self, str_protocol, ls_param_names, bin_rate=100.0):
+    def load_psth(self, str_protocol, ls_param_names, bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601)):
         c_data = sd.Dataset(self.str_experiment)
         self.param_names = ls_param_names
         self.str_protocol = str_protocol
@@ -186,6 +174,9 @@ class SpikeOutputs(object):
         spike_dict, cluster_id, params, unique_params, pre_pts, stim_pts, tail_pts = c_data.get_spike_rate_and_parameters(
         str_protocol, None, self.param_names, sort_algorithm=self.str_algo, bin_rate=bin_rate, sample_rate=20000,
         file_name=self.ls_filenames)
+
+        params = dict_list_to_array(params)
+        unique_params = dict_list_to_array(unique_params)
 
         n_epochs = spike_dict[cluster_id[0]].shape[0]
         n_bin_dt = 1/bin_rate * 1000 # in ms
@@ -201,27 +192,42 @@ class SpikeOutputs(object):
         
         n_total_pts = n_pre_pts + n_stim_pts + n_tail_pts
 
+        # Get total spike count for each cell
+        spike_counts = np.zeros(len(cluster_id))
+        for idx, n_id in enumerate(cluster_id):
+            # Multiple Sp/s by bin_dt in s to get total spikes
+            spike_counts[idx] = np.sum(spike_dict[n_id]) * n_bin_dt / 1000
+
         self.stim = {'params': params, 'unique_params': unique_params, 
              'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
-             'n_total_pts': n_total_pts}
-        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt}
-        self.ARR_CELL_IDS = np.array(cluster_id)
-        self.GOOD_CELL_IDS = np.array(cluster_id)
+             'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt}
+        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
+                       'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
+                       'total_spike_counts': spike_counts}
+        
+        self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, np.array(cluster_id))
+        self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
 
-    def load_isi(self, str_protocol, bin_edges=np.linspace(0,300,601)):
+        # Load protocol ISI
+        self.load_isi(str_protocol, bin_edges=isi_bin_edges, c_data=c_data, file_names=self.ls_filenames)
+
+    def load_isi(self, str_protocol, bin_edges=np.linspace(0,300,601), c_data=None, file_names=None):
         # Get ISI
-        c_data = sd.Dataset(self.str_experiment)
-        acf, isi, isi_cluster_id = c_data.get_interspike_interval(str_protocol, None, self.str_algo, 
-                                                     file_name=self.ls_filenames, bin_edges=bin_edges)
-        self.spikes['isi'] = isi
-        self.spikes['isi_cluster_id'] = isi_cluster_id
-        self.spikes['acf'] = acf
-        self.spikes['isi_bin_edges'] = bin_edges
-        
+        if c_data is None:
+            c_data = sd.Dataset(self.str_experiment)
+        if str_protocol not in self.isi.keys():
+            print(f'Loading ISI for {str_protocol} {file_names}...')
+            acf, isi, isi_cluster_id = c_data.get_interspike_interval(str_protocol, None, self.str_algo, 
+                                                        file_name=file_names, bin_edges=bin_edges)
+            self.isi[str_protocol] = {'acf': acf, 'isi': isi, 'isi_cluster_id': isi_cluster_id, 'isi_bin_edges': bin_edges}
+            print(f'Loaded ISI for {len(isi_cluster_id)} cells.')
+        else:
+            print(f'ISI for {str_protocol} already loaded.')
 
     def set_common_ids(self):
+        # Set common cell IDs between noise and protocol
         self.sta_cluster_ids = list(self.d_sta.keys())
         self.ARR_COMMON_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, self.spikes['cluster_id'])
         self.ARR_COMMON_CELL_IDS = np.intersect1d(self.ARR_COMMON_CELL_IDS, self.sta_cluster_ids)
@@ -237,67 +243,29 @@ class SpikeOutputs(object):
 
     def print_stim_summary(self):
         # Print stim summary from stim dictionary
-        print('epoch length: ' + str(self.stim['n_total_pts'] * self.spikes['n_bin_dt']) + ' ms')
+        n_bin_dt = self.stim['n_bin_dt']
+        print('epoch length: ' + str(self.stim['n_total_pts'] * n_bin_dt) + ' ms')
         print('Total epochs: ' + str(self.stim['n_epochs']))
-        print('pre: ' + str(self.stim['n_pre_pts'] * self.spikes['n_bin_dt']) + ' ms; stim: ' + str(self.stim['n_stim_pts'] * self.spikes['n_bin_dt']) + ' ms; tail: ' + str(self.stim['n_tail_pts'] * self.spikes['n_bin_dt']) + ' ms')
+        print('pre: ' + str(self.stim['n_pre_pts'] * n_bin_dt) + ' ms; stim: ' + str(self.stim['n_stim_pts'] * n_bin_dt) + ' ms; tail: ' + str(self.stim['n_tail_pts'] * n_bin_dt) + ' ms')
         print('pre pts: ' + str(self.stim['n_pre_pts']) + '; stim pts: ' + str(self.stim['n_stim_pts']) + '; tail pts: ' + str(self.stim['n_tail_pts']))
-        print('bin rate: ' + str(self.spikes['bin_rate']) + ' Hz; bin dt: ' + str(self.spikes['n_bin_dt']) + ' ms')
+        print('bin rate: ' + str(self.spikes['bin_rate']) + ' Hz; bin dt: ' + str(n_bin_dt) + ' ms')
         
-    def save(self, str_path: str=None):
+    def save_pkl(self, str_path: str=None):
         if not str_path:
             str_path = os.path.join(self.str_experiment, self.str_datafile)
-        d_save = {'stim': self.stim, 'spikes': self.spikes}
+        # d_save = {'stim': self.stim, 'spikes': self.spikes, ''}
         with open(str_path, 'wb') as f:
-            pickle.dump(d_save, f)
+            pickle.dump(self, f)
         print('Saved to ' + str_path)
 
-    def load(self, str_path: str):
-        with open(str_path, 'rb') as f:
-            d_load = pickle.load(f)
-        self.stim = d_load['stim']
-        self.spikes = d_load['spikes']
-        cluster_id = d_load['spikes']['cluster_id']
-        self.ARR_CELL_IDS = np.array(cluster_id)
-        self.GOOD_CELL_IDS = np.array(cluster_id)
-        self.N_CELLS = len(self.ARR_CELL_IDS)
-        self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
-        print('Loaded from ' + str_path)
-
-    def remove_dups(self, thresh, str_type):
-        type_IDs = self.types.d_main_IDs[str_type]
-        n_type_cells = len(type_IDs)
-
-        rfs = [(self.d_sta[str_ID]['x0'], self.d_sta[str_ID]['y0']) for str_ID in type_IDs]
-
-        # Compute pairwise distance between all RFs
-        arr_dist = np.zeros((n_type_cells, n_type_cells))
-        arr_dist[:] = np.inf
-
-        dist_idx = (range(n_type_cells), range(n_type_cells))
-        for i in dist_idx[0]:
-            for j in dist_idx[1]:
-                if i != j:
-                    arr_dist[i, j] = np.sqrt((rfs[i][0] - rfs[j][0])**2 + (rfs[i][1] - rfs[j][1])**2)
-
-        # Copy of RFs and dist
-        dedup_idx = np.arange(n_type_cells)
-        dedup_dist = arr_dist.copy()
-        
-        # While loop through copy. If distance < thresh, remove from copy.
-        while np.any(dedup_dist < thresh):
-            # Find min dist
-            min_idx = np.unravel_index(np.argmin(dedup_dist), dedup_dist.shape)
-            
-            # Remove row from copy
-            dedup_dist = np.delete(dedup_dist, min_idx[0], axis=0)
-            
-            # Remove from idx
-            dedup_idx = np.delete(dedup_idx, min_idx[0])
-
-        # Save deduped IDs
-        dedup_id = np.array([type_IDs[i] for i in dedup_idx])
-
-        # Update data
-        self.types.d_main_IDs[str_type+'_dd'] = dedup_id
-
-        return dedup_dist
+    # def load(self, str_path: str):
+    #     with open(str_path, 'rb') as f:
+    #         d_load = pickle.load(f)
+    #     self.stim = d_load['stim']
+    #     self.spikes = d_load['spikes']
+    #     cluster_id = d_load['spikes']['cluster_id']
+    #     self.ARR_CELL_IDS = np.array(cluster_id)
+    #     self.GOOD_CELL_IDS = np.array(cluster_id)
+    #     self.N_CELLS = len(self.ARR_CELL_IDS)
+    #     self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+    #     print('Loaded from ' + str_path)

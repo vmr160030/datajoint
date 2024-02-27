@@ -5,6 +5,20 @@ import spikeoutputs as so
 import seaborn as sns
 import celltype_io as ctio
 
+def add_identity(axes, *line_args, **line_kwargs):
+    identity, = axes.plot([], [], *line_args, **line_kwargs)
+    def callback(axes):
+        low_x, high_x = axes.get_xlim()
+        low_y, high_y = axes.get_ylim()
+        low = max(low_x, low_y)
+        high = min(high_x, high_y)
+        identity.set_data([low, high], [low, high])
+    callback(axes)
+    axes.callbacks.connect('xlim_changed', callback)
+    axes.callbacks.connect('ylim_changed', callback)
+    return axes
+
+
 def plot_crf(spikeout: so.SpikeOutputs, ax=None, ls_types=None):
     if ls_types is None:
         ls_types = spikeout.ls_RGC_labels
@@ -63,16 +77,22 @@ def get_rf_ells(ls_cells: list, d_sta: dict, NOISE_GRID_SIZE: float, sd_mult: fl
     return ells
 
 
-def plot_rfs(spikeout: so.SpikeOutputs, ls_cells, ell_color=None, ax=None, sd_mult=1.3, alpha=0.6, facecolor=None):
+def plot_rfs(spikeout: so.SpikeOutputs, ls_cells, 
+             ell_color=None, ax=None, sd_mult=1.3, 
+             alpha=0.6, facecolor='k', SCALING=None, b_label=False,
+             b_zoom=True):
     if not ax:
         f, ax = plt.subplots(figsize=(5, 5))
 
-    ax.set_xlim(0, 4000)
-    ax.set_ylim(0, 4000)
+    if SCALING is None:
+        SCALING = spikeout.NOISE_GRID_SIZE
+        ax.set_xlim(0, 4000)
+        ax.set_ylim(0, 4000)
+
     if not ell_color:
         ell_color = np.random.rand(3)
 
-    ells = get_rf_ells(ls_cells, spikeout.d_sta, spikeout.NOISE_GRID_SIZE, sd_mult)
+    ells = get_rf_ells(ls_cells, spikeout.d_sta, SCALING, sd_mult)
 
     # If facecolor is tuple, make it a list of tuples
     if isinstance(facecolor, tuple) or isinstance(facecolor, str):
@@ -86,11 +106,28 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells, ell_color=None, ax=None, sd_mu
         ell.set_alpha(alpha)
         ell.set_edgecolor(ell_color)
         ell.set_facecolor(ls_facecolors[idx_ell])
-    return ax
+
+    if b_label:
+        for idx, ell in enumerate(ells):
+            ax.text(ell.center[0], ell.center[1], str(ls_cells[idx]), 
+                    horizontalalignment='center', verticalalignment='center', fontsize=8,
+                    fontweight='bold')
+            
+    # If zoom, find min and max ell centers and set lims
+    if b_zoom and len(ells) > 0:
+        x0s = np.array([ell.center[0] for ell in ells])
+        y0s = np.array([ell.center[1] for ell in ells])
+        x0_min, x0_max = np.min(x0s), np.max(x0s)
+        y0_min, y0_max = np.min(y0s), np.max(y0s)
+        pad = 400
+        ax.set_xlim(x0_min-pad, x0_max+pad)
+        ax.set_ylim(y0_min-pad, y0_max+pad)
+    return ax, ells
 
 def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
                     ls_colors = sns.color_palette(), axs=None, ls_facecolors=None, alpha=0.6,
-                    b_ticks_off=True, ls_RGC_labels=None, d_IDs=None):
+                    b_ticks_off=True, ls_RGC_labels=None, d_IDs=None,
+                    b_zoom=False):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
@@ -120,9 +157,10 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=['OffP', 'OffM', 'OnP', 'On
         # Remove any cells that don't have keys in data.d_sta
         ls_cells = [c for c in ls_cells if c in data.d_sta.keys()]
         
-        plot_rfs(data, ls_cells, ell_color=ls_colors[i], facecolor=ls_facecolors[i], ax=axs[i],
-                 alpha=alpha)
-        axs[i].set_title(ls_label+f' (n={len(ls_cells)}) RFs')
+        ax = axs[i]
+        _, ells = plot_rfs(data, ls_cells, ell_color=ls_colors[i], facecolor=ls_facecolors[i], 
+                           ax=ax, alpha=alpha, b_zoom=b_zoom)
+        ax.set_title(ls_label+f' (n={len(ls_cells)}) RFs')
 
     if b_ticks_off:
         for ax in axs:

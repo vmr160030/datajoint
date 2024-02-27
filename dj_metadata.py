@@ -3,7 +3,7 @@ import glob
 import os
 import numpy as np
 import json
-import pandas as pd
+import sys
 
 dj.config['database.host'] = '127.0.0.1'
 dj.config['database.user'] = 'root'
@@ -32,35 +32,74 @@ class Protocol(dj.Manual):
     """
 
 @schema
+class EpochGroup(dj.Manual):
+    definition = """
+    # Epoch group is a collection of epoch blocks, which is a collection of individual epochs.
+    -> Protocol
+    group_idx       : int
+    ---
+    group_label     : varchar(200)
+    source_label    : varchar(200)
+    """
+
+@schema
 class EpochBlock(dj.Manual):
     definition = """
-    # Epoch block
-    -> Protocol
+    # Epoch block is a collection of individual epochs.
+    -> EpochGroup
     data_file  : varchar(200)
+    block_idx       : int
     ---
-    group_label : varchar(200)
+    frame_times : longblob
+    n_epochs    : int
+    """
+
+@schema
+class Epoch(dj.Manual):
+    definition = """
+    # Epoch
+    -> EpochBlock
+    epoch_idx       : int
+    ---
+    bath_temperature : float
+    backgrounds=null : json
+    parameters=null  : json
     """
 
 @schema
 class SortingChunk(dj.Manual):
     definition = """
     # Sorting chunk
-    -> EpochBlock
-    data_file  : varchar(200)
-    ---
+    -> Experiment
     chunk_id : varchar(200)
     """
+
+@schema
+class DataFile(dj.Manual):
+    definition = """
+    # Data file
+    -> EpochBlock
+    -> SortingChunk
+    data_file: varchar(200)
+    """
+
+# @schema
+# class SortingAlgo(dj.Manual):
+#     definition = """
+#     # Sorting algorithm
+#     -> SortingChunk
+#     algorithm: varchar(200)
+#     ---
+#     """
 
 @schema
 class CellTyping(dj.Manual):
     definition = """
     # Typing of cells for a given sorting chunk
-    -> SortingChunk
-    chunk_id: varchar(200)
-    data_file: varchar(200)
-    data_files: varchar(200)
-    algorithm: varchar(200)
-    b_typing_file_exists: bool
+    -> DataFile.proj(noise_data_file='data_file')
+    noise_data_files: varchar(200) # All data files included in WN analysis
+    algorithm: varchar(200) # Spike Sorting algorithm
+    b_typing_file_exists: int # 0: false, 1: true
     typing_file: varchar(200)
     ---
     num_cells=0 : int
@@ -73,18 +112,144 @@ class CellTyping(dj.Manual):
     """
 
 @schema
-class MovingChromaticBar(dj.Manual):
+class TypingNotes(dj.Manual):
     definition = """
-    # Parameters for moving chromatic bar protocol
-    -> SortingChunk
-    data_file_name: varchar(200)
+    # Notes on cell typing
+    -> CellTyping
     ---
-    bar_size_x: smallint unsigned
-    bar_size_y: smallint unsigned
-    n_orientations: smallint unsigned
-    orientation: blob
-    n_repeats: smallint unsigned  
+    quality: varchar(200)
+    typing_status: varchar(200) 
     """
+
+@schema
+class Cell(dj.Manual):
+    definition = """
+    # Cluster
+    -> SortingChunk
+    algorithm: varchar(200)
+    cell_id: int
+    """
+
+@schema
+class STAFit(dj.Manual):
+    definition = """
+    # STA fit
+    -> SortingChunk
+    -> Cell
+    ---
+    noise_grid_size: float # Size of noise grid in microns
+    noise_height: float # Height of display in stixels
+    noise_width: float # Width of display in stixels
+    x0: float # x center of ellipse fit in stixel space
+    y0: float # y center of ellipse fit in stixel space
+    sigma_x: float # x standard deviation of ellipse fit in stixel space
+    sigma_y: float # y standard deviation of ellipse fit in stixel space
+    theta: float # angle of ellipse fit. 
+    red_time_course=null: longblob # Red channel time course
+    green_time_course=null: longblob # Green channel time course
+    blue_time_course=null: longblob # Blue channel time course
+    """
+
+@schema
+class CellType(dj.Manual):
+    definition = """
+    # Cell type
+    -> CellTyping
+    -> Cell
+    ---
+    cell_type: varchar(200)
+    """
+
+@schema
+class SpikeCounts(dj.Manual):
+    definition = """
+    # Spike counts
+    -> DataFile
+    -> Cell
+    ---
+    n_spikes: int
+    """
+
+@schema
+class InterspikeInterval(dj.Manual):
+    definition = """
+    # Interspike interval
+    -> DataFile
+    -> Cell
+    ---
+    isi_edges: longblob
+    isi: longblob
+    """
+
+@schema
+class CRF(dj.Manual):
+    definition = """
+    # CRF data
+    -> DataFile
+    -> Cell
+    contrast: decimal(3,2)
+    temporal_frequency: decimal(3,1) # Hz, typically 4Hz
+    ---
+    crf_f1: float
+    """
+    
+@schema
+class QCThresh(dj.Manual):
+    definition = """
+    # Quality control thresholds
+    -> CellTyping
+    set: int
+    protocol_data_file: varchar(200)
+    crf_data_file: varchar(200)
+    ---
+    n_ref_ms=1.5 : float # ISI refractory violation period in ms
+    isi_thresh=0.1 : float # percent spikes in refractory period
+    ei_corr_thresh=0.75 : float # correlation threshold for EI
+    noise_spikes_thresh=80.0 : float # Top percentile to keep for noise spikes
+    noise_spikes_bytype=1 : tinyint # 0: false, 1: true
+    protocol_spikes_thresh=80.0 : float # Top percentile to keep for protocol spikes
+    protocol_spikes_bytype=1 : tinyint # 0: false, 1: true
+    crf_f1_thresh=50.0 : float # Top percentile to keep for CRF F1
+    crf_f1_bytype=1 : tinyint # 0: false, 1: true
+    """
+
+@schema
+class ISIViolations(dj.Computed):
+    definition = """
+    # ISI violations
+    -> QCThresh
+    -> InterspikeInterval
+    ---
+    isi_violations: float
+    """
+
+@schema
+class EICorrelation(dj.Computed):
+    definition = """
+    # EI correlation
+    -> SortingChunk.proj(noise_data_file='data_file')
+    -> SortingChunk.proj(protocol_data_file='data_file')
+    cell_id: int
+    ---
+    ei_corr: float
+    """
+
+
+# @schema
+# class QCParams(dj.Manual):
+#     definition = """
+#     # Quality control parameters
+#     -> QCThresh
+#     cell_id: int
+#     ---
+#     cell_type: varchar(200)
+#     noise_spikes: float
+#     protocol_spikes: float
+#     crf_f1: float
+#     noise_isi_violations: float
+#     protocol_isi_violations: float
+#     ei_corr: float
+#     """
 
 def search_protocol(str_search):
     str_search = str_search.lower()
@@ -112,13 +277,13 @@ def get_new_metadata(ls_json):
 
     return arr_newdates
 
-def load_metadata(str_metadata_dir, verbose=False):
+def load_metadata(str_metadata_dir):
     # Get json files with dates not already in Experiment
     ls_json = glob.glob(os.path.join(str_metadata_dir, '*.json'))
     arr_newdates = get_new_metadata(ls_json)
     ls_new_json = [os.path.join(str_metadata_dir, str_date + '.json') for str_date in arr_newdates]
     ls_new_json.sort()
-    
+
     # Add experiment metadata
     ls_exp_data = []
     for str_json in ls_new_json:
@@ -127,22 +292,29 @@ def load_metadata(str_metadata_dir, verbose=False):
     Experiment.insert(ls_exp_data, skip_duplicates=True)
 
     # Add protocol metadata
-    ls_protocol_data = []
-    ls_block_data = []
-
     for str_json in ls_new_json:
+        ls_protocol_data = []
+        ls_group_data = []
+        ls_block_data = []
+        ls_epoch_data = []
         d_pdata = {}
+        d_gdata = {}
         d_bdata = {}
+        d_edata = {}
         str_experiment = os.path.basename(str_json).split('.')[0]
         d_pdata['date_id'] = str_experiment
+        d_gdata['date_id'] = str_experiment
         d_bdata['date_id'] = str_experiment
-        # print(str_experiment)
+        d_edata['date_id'] = str_experiment
+        print(str_experiment)
         with open(str_json) as f:
             json_data = json.load(f)
             for i, protocol in enumerate(json_data['protocol']):
                 # print(protocol['label'])
                 d_pdata['protocol_id']= protocol['label']
                 d_bdata['protocol_id']= protocol['label']
+                d_gdata['protocol_id']= protocol['label']
+                d_edata['protocol_id']= protocol['label']
 
                 if isinstance(protocol['group'], dict):
                     group = [protocol['group']]
@@ -152,162 +324,92 @@ def load_metadata(str_metadata_dir, verbose=False):
                 n_groups = len(group)
                 d_pdata['n_groups'] = n_groups
                 d_pdata['n_blocks'] = 0
-                for d_group in group:
-                    try:
+                for g_idx, d_group in enumerate(group):
+                    if 'block' not in d_group.keys():
+                        d_gdata['group_idx'] = g_idx
+                        d_gdata['group_label'] = d_group['label']
+                        d_gdata['source_label'] = ''
+                        ls_group_data.append(d_gdata.copy())
+                        continue
+
+                    block = d_group['block']
+                    if isinstance(d_group['block'], dict):
+                        block = [d_group['block']]
+                    else:
                         block = d_group['block']
-                        if isinstance(d_group['block'], dict):
-                            block = [d_group['block']]
+                    
+                    n_blocks = len(block)
+                    d_pdata['n_blocks'] += n_blocks
+
+                    d_gdata['group_idx'] = g_idx
+                    d_bdata['group_idx'] = g_idx
+                    d_edata['group_idx'] = g_idx
+
+                    d_gdata['group_label'] = d_group['label']
+                    if 'source' in d_group.keys():
+                        d_gdata['source_label'] = d_group['source']['label']
+                    else:
+                        d_gdata['source_label'] = ''
+                    ls_group_data.append(d_gdata.copy())
+
+                    for b_idx, d_block in enumerate(block):
+                        epoch = d_block['epoch']
+                        if isinstance(epoch, dict):
+                            epoch = [epoch]
                         else:
-                            block = d_group['block']
+                            epoch = epoch
                         
-                        n_blocks = len(block)
-                        d_pdata['n_blocks'] += n_blocks
-                        d_bdata['group_label'] = d_group['label']
+                        d_bdata['block_idx'] = b_idx
+                        d_edata['block_idx'] = b_idx
+                        try:
+                            d_bdata['frame_times'] = np.array(d_block['frameTimesMs'])
+                        except:
+                            d_bdata['frame_times'] = np.array([])
+                        d_bdata['n_epochs'] = len(epoch)
 
-                        for d_block in block:
-                            str_datafile = d_block['dataFile']
-                            d_bdata['data_file'] = str_datafile.split('/')[-2]
-                            ls_block_data.append(d_bdata.copy())
-                    # Print any exception
-                    except Exception as e:
-                        if verbose:
-                            print('Error in protocol')                        
-                            print(str_experiment)
-                            print(protocol['label'])
-                            print(d_group['label'])
-                            print(e)
+                        
+                        if len(d_block['epoch']) == 0:
+                            continue
+                        str_datafile = d_block['dataFile']
+                        d_bdata['data_file'] = str_datafile.split('/')[-2]
+                        d_edata['data_file'] = str_datafile.split('/')[-2]
+
+                        for e_idx, d_epoch in enumerate(epoch):
+                            d_edata['epoch_idx'] = e_idx
+                            d_edata['bath_temperature'] = 0#d_epoch['properties']['bathTemperature']
+                            # d_edata['backgrounds'] = d_epoch['backgrounds']
+                            d_edata['parameters'] = d_epoch['parameters']
+                            ls_epoch_data.append(d_edata.copy())
+                        ls_block_data.append(d_bdata.copy())
+
                 ls_protocol_data.append(d_pdata.copy())
-
-    Protocol.insert(ls_protocol_data, skip_duplicates=True)
+        Protocol.insert(ls_protocol_data, skip_duplicates=True)
+        EpochGroup.insert(ls_group_data, skip_duplicates=True)
+        EpochBlock.insert(ls_block_data, skip_duplicates=True)
+        Epoch.insert(ls_epoch_data, skip_duplicates=True)
 
     # Add epoch block metadata
-    for idx in range(len(ls_block_data)):
-        try:
-            EpochBlock.insert1(ls_block_data[idx], skip_duplicates=True)
-        except:
-            if verbose:
-                print('Error in adding to EpochBlock')
-                print(idx)
-                print(ls_block_data[idx])
+    # for idx in range(len(ls_block_data)):
+    #     try:
+    #         EpochBlock.insert1(ls_block_data[idx], skip_duplicates=True)
+    #     except:
+    #         print('Error in adding to EpochBlock')
+    #         print(idx)
+    #         print(ls_block_data[idx])
     
     print(f'Added {len(ls_new_json)} new experiments')
-    
-    # Find sorting chunk information
-    ls_chunk_data = []
-    ls_chunk_txt = glob.glob('/Volumes/data-1/data/sorted/*/*chunk*.txt')
-    ls_chunk_txt.sort()
-    for str_txt in ls_chunk_txt:
-        d_chunk_data = {}
-        str_experiment = os.path.basename(os.path.dirname(str_txt))
-        if str_experiment not in SortingChunk().fetch('date_id'):
-            str_idxchunk = os.path.basename(str_txt).split('.')[0].split('_')[-1]
-            with open(str_txt) as f:
-                ls_files = f.readlines()
-            ls_files = [x.strip('\n') for x in ls_files[0].split(' ')]
 
-            d_chunk_data['date_id'] = str_experiment
-            for str_file in ls_files:
-                d_chunk_data['data_file'] = str_file
-                d_chunk_data['chunk_id'] = str_idxchunk
-                try:
-                    d_chunk_data['protocol_id'] = (EpochBlock() & f'data_file = "{d_chunk_data["data_file"]}"' & f'date_id="{str_experiment}"').fetch('protocol_id')[0]
-                    ls_chunk_data.append(d_chunk_data.copy())
-                except Exception as e:
-                    if verbose:
-                        print('Error in SortingChunk information')
-                        print(d_chunk_data)
-                        print(e)
-    SortingChunk.insert(ls_chunk_data, skip_duplicates=True)
 
-def load_typing(ANALYSIS_PATH, verbose=False):
-    import sys
-    sys.path.append('/Users/riekelabbackup/Desktop/Vyom/mea_data_analysis/protocol_analysis/')
-    import celltype_io as ctio
+def query_epochs(str_param, str_val, str_compare='=', str_date=None, str_datafile=None, str_protocol=None, b_AND=True):
+    # Construct epoch table query
+    ls_query = [f"parameters->>'$.{str_param}'{str_compare}{str_val}"]
+    if str_date is not None:
+        ls_query.append(f'date_id="{str_date}"')
+    if str_datafile is not None:
+        ls_query.append(f'data_file="{str_datafile}"')
+    if str_protocol is not None:
+        ls_query.append(f'protocol_id="{str_protocol}"')
 
-    ls_RGC_labels = ['OnP', 'OffP', 'OnM', 'OffM', 'SBC']
-    ls_typing_keys = ['num_on_p', 'num_off_p', 'num_on_m', 'num_off_m', 'num_sbc']
-
-    str_noise_protocol = 'manookinlab.protocols.FastNoise'
-    # Get noise chunks
-    noise_chunks = (SortingChunk() & {'protocol_id': str_noise_protocol}).fetch()
-    arr_typingfiles = CellTyping().fetch('typing_file')
-
-    # For each unique date_id
-    for date_id in np.unique(noise_chunks['date_id']):
-        d_insert = {'date_id': date_id, 'protocol_id': str_noise_protocol}
-
-        ls_chunks_for_date = noise_chunks[noise_chunks['date_id'] == date_id]
-
-        # For each unique chunk_id
-        for chunk_id in np.unique(ls_chunks_for_date['chunk_id']):
-            d_insert['chunk_id'] = chunk_id
-            ls_chunks_for_cid = ls_chunks_for_date[ls_chunks_for_date['chunk_id'] == chunk_id]
-
-            # If multiple noise chunks, concatenate data_file names
-            ls_data_files = [chunk['data_file'] for chunk in ls_chunks_for_cid]
-            str_data_files = '_'.join(ls_data_files)
-            d_insert['data_file'] = ls_data_files[0]
-            d_insert['data_files'] = str_data_files
-            
-            # Get typing file
-            ls_typing_files = glob.glob(os.path.join(ANALYSIS_PATH, date_id, chunk_id, '*', '*.txt'))
-
-            # If typing file doesn't exist, don't insert
-            if len(ls_typing_files) == 0 and verbose:
-                print(f'No typing file for {date_id} {chunk_id} {str_data_files}')
-            
-            # If typing file exists, insert with num_cells
-            else:                
-                for str_typing_file in ls_typing_files:
-                    if str_typing_file not in arr_typingfiles:
-                        d_insert['algorithm'] = os.path.basename(os.path.dirname(str_typing_file))
-                        d_insert['b_typing_file_exists'] = True
-                        d_insert['typing_file'] = str_typing_file
-
-                        try:
-                            types = ctio.CellTypes(str_typing_file, ls_RGC_labels=ls_RGC_labels)
-
-                            d_insert['num_cells'] = types.arr_types.shape[0] # TODO get actual num cells from paramsf file?
-                            d_insert['num_goodcells'] = types.arr_types.shape[0] # TODO ISI rejection
-
-                            for idx, str_key in enumerate(ls_typing_keys):
-                                # Check if key is in types.d_main_IDs
-                                if ls_RGC_labels[idx] in types.d_main_IDs.keys():
-                                    d_insert[str_key] = len(types.d_main_IDs[ls_RGC_labels[idx]])
-                                elif verbose:
-                                    print(f'No {ls_RGC_labels[idx]} in {date_id} {chunk_id} {str_data_files} {str_typing_file}')
-
-                            CellTyping.insert1(d_insert, skip_duplicates=True)
-                            print(f'Inserted {date_id} {chunk_id} {str_data_files} {str_typing_file}')
-
-                        except Exception as e:
-                            print(f'Error in {date_id} {chunk_id} {str_data_files} {str_typing_file}')
-                            print(e)
-
-def make_df_celltyping(df_meta, verbose=False):
-    """Construct dataframe of cell typing files from metadata.
-
-    Args:
-        df_meta (pd.DataFrame): df_meta output from chunk_id_protocol method
-    """
-    # get all unique chunks for each date_id
-    arr_dates = df_meta.index.get_level_values('date_id').unique().values
-    d_chunks = {date_id: df_meta.loc[pd.IndexSlice[date_id, :, :, :], 'chunk_id'].unique() 
-                for date_id in arr_dates}
-    
-    # Create dataframe of cell typing for those chunks
-    ls_df_ct = []
-    arr_dates = list(d_chunks.keys())
-    for date_id in arr_dates:
-        arr_chunks = d_chunks[date_id]
-        for chunk_id in arr_chunks:
-            df_ct = (CellTyping() & f"date_id='{date_id}'" & f"chunk_id='{chunk_id}'").fetch(format='frame')
-            if df_ct.shape[0] > 0:
-                ls_df_ct.append(df_ct)
-            elif verbose:
-                print(f"no cell typing for {date_id} {chunk_id}")
-
-    df_ct = pd.concat(ls_df_ct)
-
-    return df_ct
-
+    if b_AND:
+        ls_query = dj.AndList(ls_query)
+    return Epoch & ls_query
