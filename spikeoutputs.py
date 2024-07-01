@@ -76,8 +76,8 @@ class SpikeOutputs(object):
             self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
             self.N_CELLS = len(self.ARR_CELL_IDS)
     
-    def load_sta(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
-                 isi_bin_edges=None, load_ei=False):
+    def load_sta_from_params(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
+                 isi_bin_edges=None, load_ei=False, load_neurons=True):
         if not paramsfile:
             paramsfile = self.paramsfile
             dataset_name = self.dataset_name
@@ -90,13 +90,18 @@ class SpikeOutputs(object):
         print(f'Loading STA from {paramsfile}...')
         self.vcd = vl.load_vision_data(analysis_path=os.path.dirname(paramsfile), dataset_name=dataset_name, 
                                        include_params=True, include_runtimemovie_params=True, include_ei=load_ei,
-                                       include_neurons=True)
-        self.N_WIDTH = self.vcd.runtimemovie_params.width
-        self.N_HEIGHT = self.vcd.runtimemovie_params.height
+                                       include_neurons=load_neurons)
+        if load_neurons:
+            self.N_WIDTH = self.vcd.runtimemovie_params.width
+            self.N_HEIGHT = self.vcd.runtimemovie_params.height
         
-        # This is used to translate noise stixel space to microns.
-        self.NOISE_GRID_SIZE = self.vcd.runtimemovie_params.micronsPerStixelX # Typically 30 microns. 
-        
+            # This is used to translate noise stixel space to microns.
+            self.NOISE_GRID_SIZE = self.vcd.runtimemovie_params.micronsPerStixelX # Typically 30 microns. 
+        else:
+            self.N_WIDTH = 100.0
+            self.N_HEIGHT = 75.0 
+            self.NOISE_GRID_SIZE = 30
+
         # Load RF fit parameters from .params file
         # Get only IDs of cells that have RF fits
         d_sta = {}
@@ -224,6 +229,8 @@ class SpikeOutputs(object):
                                                         file_name=file_names, bin_edges=bin_edges)
             self.isi[str_protocol] = {'acf': acf, 'isi': isi, 'isi_cluster_id': isi_cluster_id, 'isi_bin_edges': bin_edges}
             print(f'Loaded ISI for {len(isi_cluster_id)} cells.')
+
+            self.ARR_CELL_IDS = np.union1d(self.ARR_CELL_IDS, np.array(isi_cluster_id))
         else:
             print(f'ISI for {str_protocol} already loaded.')
 
@@ -259,14 +266,15 @@ class SpikeOutputs(object):
             pickle.dump(self, f)
         print('Saved to ' + str_path)
 
-    # def load(self, str_path: str):
-    #     with open(str_path, 'rb') as f:
-    #         d_load = pickle.load(f)
-    #     self.stim = d_load['stim']
-    #     self.spikes = d_load['spikes']
-    #     cluster_id = d_load['spikes']['cluster_id']
-    #     self.ARR_CELL_IDS = np.array(cluster_id)
-    #     self.GOOD_CELL_IDS = np.array(cluster_id)
-    #     self.N_CELLS = len(self.ARR_CELL_IDS)
-    #     self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
-    #     print('Loaded from ' + str_path)
+    def load(self, str_path: str):
+        with open(str_path, 'rb') as f:
+            d_load = pickle.load(f)
+        self.stim = d_load['stim']
+        self.spikes = d_load['spikes']
+        cluster_id = d_load['spikes']['cluster_id']
+        self.isi = d_load['isi']
+        self.ARR_CELL_IDS = np.array(cluster_id)
+        self.GOOD_CELL_IDS = np.array(cluster_id)
+        self.N_CELLS = len(self.ARR_CELL_IDS)
+        self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+        print('Loaded from ' + str_path)

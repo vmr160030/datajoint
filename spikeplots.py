@@ -80,7 +80,7 @@ def get_rf_ells(ls_cells: list, d_sta: dict, NOISE_GRID_SIZE: float, sd_mult: fl
 def plot_rfs(spikeout: so.SpikeOutputs, ls_cells, 
              ell_color=None, ax=None, sd_mult=1.3, 
              alpha=0.6, facecolor='k', SCALING=None, b_label=False,
-             b_zoom=True):
+             b_zoom=True, lw=1):
     if not ax:
         f, ax = plt.subplots(figsize=(5, 5))
 
@@ -106,6 +106,7 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
         ell.set_alpha(alpha)
         ell.set_edgecolor(ell_color)
         ell.set_facecolor(ls_facecolors[idx_ell])
+        ell.set_linewidth(lw)
 
     if b_label:
         for idx, ell in enumerate(ells):
@@ -127,7 +128,7 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
 def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
                     ls_colors = sns.color_palette(), axs=None, ls_facecolors=None, alpha=0.6,
                     b_ticks_off=True, ls_RGC_labels=None, d_IDs=None,
-                    b_zoom=False):
+                    b_zoom=False, sd_mult=1.3):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
@@ -159,7 +160,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=['OffP', 'OffM', 'OnP', 'On
         
         ax = axs[i]
         _, ells = plot_rfs(data, ls_cells, ell_color=ls_colors[i], facecolor=ls_facecolors[i], 
-                           ax=ax, alpha=alpha, b_zoom=b_zoom)
+                           ax=ax, alpha=alpha, b_zoom=b_zoom, sd_mult=sd_mult)
         ax.set_title(ls_label+f' (n={len(ls_cells)}) RFs')
 
     if b_ticks_off:
