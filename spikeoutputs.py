@@ -33,6 +33,8 @@ class SpikeOutputs(object):
         self.str_noise_protocol = str_noise_protocol # TODO: better method for setting this from metadata
 
         self.paramsfile = paramsfile
+        if dataset_name is None:
+            dataset_name = str_algo
         self.dataset_name = dataset_name
         self.paramsmatfile = paramsmatfile
         self.str_chunk = str_chunk
@@ -77,7 +79,7 @@ class SpikeOutputs(object):
             self.N_CELLS = len(self.ARR_CELL_IDS)
     
     def load_sta_from_params(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
-                 isi_bin_edges=None, load_ei=False, load_neurons=True):
+                 isi_bin_edges=None, load_ei=False, load_neurons=True, load_sta=False):
         if not paramsfile:
             paramsfile = self.paramsfile
             dataset_name = self.dataset_name
@@ -90,7 +92,7 @@ class SpikeOutputs(object):
         print(f'Loading STA from {paramsfile}...')
         self.vcd = vl.load_vision_data(analysis_path=os.path.dirname(paramsfile), dataset_name=dataset_name, 
                                        include_params=True, include_runtimemovie_params=True, include_ei=load_ei,
-                                       include_neurons=load_neurons)
+                                       include_neurons=load_neurons, include_sta=load_sta)
         if load_neurons:
             self.N_WIDTH = self.vcd.runtimemovie_params.width
             self.N_HEIGHT = self.vcd.runtimemovie_params.height
@@ -261,20 +263,43 @@ class SpikeOutputs(object):
     def save_pkl(self, str_path: str=None):
         if not str_path:
             str_path = os.path.join(self.str_experiment, self.str_datafile)
-        # d_save = {'stim': self.stim, 'spikes': self.spikes, ''}
+        d_save = {'stim': self.stim, 'spikes': self.spikes, 
+                  'isi': self.isi, 'ARR_CELL_IDS': self.ARR_CELL_IDS, 'GOOD_CELL_IDS': self.GOOD_CELL_IDS}
+                  
+        
+        # Check if d_sta is present
+        if hasattr(self, 'd_sta'):
+            d_save['d_sta'] = self.d_sta
+            d_save['N_HEIGHT'] = self.N_HEIGHT
+            d_save['N_WIDTH'] = self.N_WIDTH
+            d_save['NOISE_GRID_SIZE'] = self.NOISE_GRID_SIZE
+        if hasattr(self, 'd_sta_spatial'):
+            d_save['d_sta_spatial'] = self.d_sta_spatial
+        if hasattr(self, 'd_sta_convex_hull'):
+            d_save['d_sta_convex_hull'] = self.d_sta_convex_hull
         with open(str_path, 'wb') as f:
-            pickle.dump(self, f)
+            pickle.dump(d_save, f)
         print('Saved to ' + str_path)
 
-    def load(self, str_path: str):
+    def load_pkl(self, str_path: str):
         with open(str_path, 'rb') as f:
             d_load = pickle.load(f)
         self.stim = d_load['stim']
         self.spikes = d_load['spikes']
-        cluster_id = d_load['spikes']['cluster_id']
         self.isi = d_load['isi']
-        self.ARR_CELL_IDS = np.array(cluster_id)
-        self.GOOD_CELL_IDS = np.array(cluster_id)
+        self.ARR_CELL_IDS = d_load['ARR_CELL_IDS']
+        self.GOOD_CELL_IDS = d_load['GOOD_CELL_IDS']
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+
+        # Check if d_sta is present
+        if 'd_sta' in d_load.keys():
+            self.d_sta = d_load['d_sta']
+            self.N_HEIGHT = d_load['N_HEIGHT']
+            self.N_WIDTH = d_load['N_WIDTH']
+            self.NOISE_GRID_SIZE = d_load['NOISE_GRID_SIZE']
+        if 'd_sta_spatial' in d_load.keys():
+            self.d_sta_spatial = d_load['d_sta_spatial']
+        if 'd_sta_convex_hull' in d_load.keys():
+            self.d_sta_convex_hull = d_load['d_sta_convex_hull']
         print('Loaded from ' + str_path)
