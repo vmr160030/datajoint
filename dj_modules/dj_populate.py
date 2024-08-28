@@ -7,6 +7,7 @@ import json
 import visionloader as vl
 import dj_metadata as djm
 import sys
+sys.path.append('../data_modules/')
 import crf_analysis as crf
 import celltype_io as ctio
 
