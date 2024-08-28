@@ -10,7 +10,8 @@ class CellTypes(object):
     def __init__(self, str_txt, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM']):
         self.str_txt = str_txt
         try:
-            self.arr_types = np.loadtxt(str_txt, dtype=str)
+            # self.arr_types = np.loadtxt(str_txt, dtype=str, sep='  ')
+            self.arr_types = np.genfromtxt(str_txt, dtype=str, delimiter='  ')
         except Exception as e:
             print('Error reading file: {}'.format(e))
             self.arr_types = np.array([])
