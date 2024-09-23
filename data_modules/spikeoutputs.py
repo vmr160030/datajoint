@@ -173,7 +173,9 @@ class SpikeOutputs(object):
             self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
         
 
-    def load_psth(self, str_protocol, ls_param_names, bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601)):
+    def load_psth(self, str_protocol, ls_param_names, 
+                  bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601),
+                  b_load_isi=True):
         c_data = sd.Dataset(self.str_experiment)
         self.param_names = ls_param_names
         self.str_protocol = str_protocol
@@ -218,8 +220,9 @@ class SpikeOutputs(object):
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
 
-        # Load protocol ISI
-        self.load_isi(str_protocol, bin_edges=isi_bin_edges, c_data=c_data, file_names=self.ls_filenames)
+        if b_load_isi:
+            # Load protocol ISI
+            self.load_isi(str_protocol, bin_edges=isi_bin_edges, c_data=c_data, file_names=self.ls_filenames)
 
     def load_isi(self, str_protocol, bin_edges=np.linspace(0,300,601), c_data=None, file_names=None):
         # Get ISI
