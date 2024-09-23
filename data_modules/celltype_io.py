@@ -41,7 +41,9 @@ class CellTypes(object):
 
             # Check if RGC label match in str_type
             for str_RGC in self.ls_RGC_labels:
-                if str_RGC in str_type.split('/'):
+                ls_split = str_type.split('/')
+                ls_split = [x.lower() for x in ls_split]
+                if str_RGC.lower() in ls_split:
                     str_type = str_RGC
 
             # If no match, then retain original str_type
@@ -76,7 +78,7 @@ class CellTypes(object):
     def get_ids_of_type(self, str_type):
         ls_cellids = []
         for n_ID in self.d_types.keys():
-            if self.d_types[n_ID] == str_type:
+            if self.d_types[n_ID].lower() == str_type.lower():
                 ls_cellids.append(n_ID)
         return np.array(ls_cellids)
 
