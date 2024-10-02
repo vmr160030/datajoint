@@ -110,7 +110,7 @@ def filter_low_crf_f1(data: so.SpikeOutputs, crf_datafile, n_percentile=10, cont
 
 def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=True,
                 sd_mult=1):
-    type_IDs = data.types.d_main_IDs[str_type]
+    type_IDs = data.types.d_main_IDs[str_type].astype(int)
     n_type_cells = len(type_IDs)
 
     rfs = [(data.d_sta[str_ID]['x0']*data.NOISE_GRID_SIZE, 
@@ -121,29 +121,42 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=T
     arr_dist[:] = np.inf
 
     dist_idx = (range(n_type_cells), range(n_type_cells))
-    for i in dist_idx[0]:
-        for j in dist_idx[1]:
+    for i in range(n_type_cells):
+        for j in range(i+1, n_type_cells):
             if i != j:
                 arr_dist[i, j] = np.sqrt((rfs[i][0] - rfs[j][0])**2 + (rfs[i][1] - rfs[j][1])**2)
 
     # Copy of RFs and dist
-    dedup_idx = np.arange(n_type_cells)
+    dedup_cidx = np.arange(n_type_cells)
     dedup_dist = arr_dist.copy()
     
     # While loop through copy. If distance < thresh, remove from copy.
+    ls_already_removed = []
     while np.any(dedup_dist < thresh):
         # Find min dist
         min_idx = np.unravel_index(np.argmin(dedup_dist), dedup_dist.shape)
+        # print(min_idx)
+        print(f'Min dist bw {type_IDs[min_idx[0]]} and {type_IDs[dedup_cidx[min_idx[1]]]}: {dedup_dist[min_idx]:.2f}')
         
-        # Remove row and col from copy
-        dedup_dist = np.delete(dedup_dist, min_idx[0], axis=0)
+        # Remove col from copy
         dedup_dist = np.delete(dedup_dist, min_idx[1], axis=1)
+
         
         # Remove from idx
-        dedup_idx = np.delete(dedup_idx, min_idx[0])
+        # dedup_idx = np.delete(dedup_idx, min_idx[0])
+        # mask = np.ones(len(dedup_idx), dtype=bool)
+        # mask[min_idx[0]] = False
+        # dedup_idx = dedup_idx[mask]
+        # dedup_ridx = np.delete(dedup_ridx, min_idx[0])
+        dedup_cidx = np.delete(dedup_cidx, min_idx[1])
+        dedup_id = np.array([type_IDs[i] for i in dedup_cidx])
+        removed_ids = np.setdiff1d(type_IDs, dedup_id)
+        new_removed = np.setdiff1d(removed_ids, ls_already_removed)
+        ls_already_removed += list(removed_ids)
+        print(f'Removed {new_removed}')
 
     # Save deduped IDs
-    dedup_id = np.array([type_IDs[i] for i in dedup_idx])
+    dedup_id = np.array([type_IDs[i] for i in dedup_cidx])
     data.types.d_main_IDs[str_type+'_dd'] = dedup_id
 
     # Plot
@@ -270,6 +283,7 @@ class QC(object):
             n_total = df_keep[df_keep['cell_type'] == str_type].shape[0]
             d_thresh_vals[f'n_{str_type}'] = df_keep[df_keep['cell_type'] == str_type][str_param].sum()
             d_thresh_vals[f'pct_{str_type}'] = d_thresh_vals[f'n_{str_type}'] / n_total
+            print(f'{str_type}: {d_thresh_vals[f"n_{str_type}"]} / {n_total} = {d_thresh_vals[f"pct_{str_type}"]:.2f}')
 
         self.d_thresh[str_set][str_param] = d_thresh_vals
     
@@ -292,6 +306,7 @@ class QC(object):
             d_thresh_vals[str_type] = n_cutoff
             d_thresh_vals[f'n_{str_type}'] = df_keep.loc[slice_idx, str_param].sum()
             d_thresh_vals[f'pct_{str_type}'] = d_thresh_vals[f'n_{str_type}'] / n_total
+            print(f'{str_type}: {d_thresh_vals[f"n_{str_type}"]} / {n_total} = {d_thresh_vals[f"pct_{str_type}"]:.2f}')
         
         # NaN to True in df_keep
         df_keep[str_param].fillna(True, inplace=True)
@@ -358,8 +373,8 @@ class QC(object):
     def plot_report(self, str_param, str_set='set1'):
         f, axs = plt.subplots(nrows=2, ncols=1, figsize=(10,10))
         self.plot_dist_by_type(str_param, ax=axs[0], b_plot_thresh=True, str_set=str_set)
-        # self.plot_pct_by_type(str_param, ax=axs[1], str_set=str_set)
-        self.plot_ncells_by_type(str_param, ax=axs[1], str_set=str_set)
+        self.plot_pct_by_type(str_param, ax=axs[1], str_set=str_set)
+        # self.plot_ncells_by_type(str_param, ax=axs[1], str_set=str_set)
 
         return f, axs
     
