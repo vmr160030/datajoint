@@ -7,6 +7,7 @@ import json
 import visionloader as vl
 import dj_metadata as djm
 import sys
+sys.path.append('../dj_modules/')
 sys.path.append('../data_modules/')
 import crf_analysis as crf
 import celltype_io as ctio
@@ -15,9 +16,9 @@ dj.config['database.host'] = '127.0.0.1'
 dj.config['database.user'] = 'root'
 dj.config['database.password'] = 'simple'
 
-STR_NAS_PATH = '/Volumes/data-1/'
-STR_ANALYSIS_PATH = '/Volumes/data-1/analysis/'
-STR_SORT_PATH = '/Volumes/data-1/data/sorted/'
+STR_NAS_PATH = '/Volumes/data/'
+STR_ANALYSIS_PATH = '/Volumes/data/analysis/'
+STR_SORT_PATH = '/Volumes/data/data/sorted/'
 
 def load_chunks_and_files():
     ls_existing = djm.SortingChunk().fetch('date_id')

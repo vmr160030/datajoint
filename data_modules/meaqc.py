@@ -204,9 +204,12 @@ class QC(object):
         ls_celltypes = []
         for n_ID in self.ARR_CELL_IDS:
             # Check if n_ID in vcd
-            if n_ID in data.vcd.main_datatable.keys():
-                ls_noisespikes.append(len(data.vcd.main_datatable[n_ID]['SpikeTimes']))
-            else:
+            try:   #RACHEL added try/except to handle cells in VCD without SpikeTimes key
+                if n_ID in data.vcd.main_datatable.keys():
+                    ls_noisespikes.append(len(data.vcd.main_datatable[n_ID]['SpikeTimes']))
+                else:
+                    ls_noisespikes.append(0)
+            except KeyError:
                 ls_noisespikes.append(0)
             # Check if n_ID in data.types.d_types
             if n_ID in data.types.d_types.keys():
