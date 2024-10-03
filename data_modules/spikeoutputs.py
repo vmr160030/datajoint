@@ -46,7 +46,7 @@ class SpikeOutputs(object):
         self.spikes = {}
         self.isi = {}
 
-        self.ARR_CELL_IDS = np.array([])
+        self.ARR_CELL_IDS = np.array([], dtype=int)
 
         # Load classifications if provided
         if str_classification is not None:
@@ -74,7 +74,8 @@ class SpikeOutputs(object):
 
             else:
                 raise ValueError('Data file must be .mat or .p')
-            self.ARR_CELL_IDS = np.union1d(np.array(self.spikes['cluster_id']).flatten(), self.ARR_CELL_IDS)
+            ids = np.array(self.spikes['cluster_id']).flatten().astype(int)
+            self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
             self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
             self.N_CELLS = len(self.ARR_CELL_IDS)
     
@@ -132,7 +133,8 @@ class SpikeOutputs(object):
 
             print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
                 
-        self.ARR_CELL_IDS = np.union1d(np.array(sta_cell_ids), self.ARR_CELL_IDS)
+        ids = np.array(sta_cell_ids).astype(int)
+        self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
         self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
@@ -215,7 +217,8 @@ class SpikeOutputs(object):
                        'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
                        'total_spike_counts': spike_counts}
         
-        self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, np.array(cluster_id))
+        ids = np.array(cluster_id).astype(int)
+        self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
         self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
