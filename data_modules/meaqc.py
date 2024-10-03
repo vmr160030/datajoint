@@ -15,6 +15,29 @@ import pickle
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+from IPython.display import display, HTML
+
+def print_type_summary(df_keep: pd.DataFrame, str_param: str, ls_RGC_labels: list,
+                       d_cutoffs: dict=None):
+    # Print summary by main cell types
+    df_print = df_keep.groupby('cell_type').agg({str_param: 'sum'})
+    # Add column for total cells of each type
+    df_print['n_total'] = df_keep['cell_type'].value_counts()
+    df_print['pct'] = df_print[str_param] / df_print['n_total']
+    # pct to string with 2 decimal places
+    df_print['pct'] = df_print['pct'].apply(lambda x: f'{x:.2f}')
+    df_print = df_print.loc[ls_RGC_labels]
+    # Rename str_param column to n_good str_param for clarity
+    df_print.rename(columns={str_param: 'n_good'}, inplace=True)
+
+    # If d_cutoffs is provided, add cutoffs to df_print
+    if d_cutoffs is not None:
+        for str_type in ls_RGC_labels:
+            df_print.loc[str_type, 'cutoff'] = d_cutoffs[str_type]
+        # If any cutoffs are 0, print warning
+        if np.any(df_print['cutoff'] == 0):
+            print('Warning: Some cutoffs are 0. Pct targets may not be met.')
+    display(df_print)
 
 def remove_cells_by_ids(data: so.SpikeOutputs, ids):
     """Remove cells from SpikeOutputs object by ids
@@ -209,13 +232,12 @@ class QC(object):
 
         # Get IDs for noise and protocol
         self.noise_ids = np.array(list(data.vcd.main_datatable.keys()))
-        
 
         # Populate total spike counts
         ls_noisespikes = []
         ls_protocolspikes = []
         ls_celltypes = []
-        for n_ID in self.ARR_CELL_IDS:
+        for n_ID in self.df_qc.index:
             # Check if n_ID in vcd
             if n_ID in data.vcd.main_datatable.keys():
                 ls_noisespikes.append(len(data.vcd.main_datatable[n_ID]['SpikeTimes']))
@@ -251,9 +273,9 @@ class QC(object):
         # Get protocol data
         if not b_noise_only:
             self.protocol_ids = np.array(data.spikes['cluster_id'])
-            for n_ID in data.ARR_CELL_IDS:
+            for n_ID in self.df_qc.index:
                 # Check if n_ID in data.spikes['cluster_id']
-                if n_ID in data.spikes['cluster_id']:
+                if n_ID in self.protocol_ids:
                     n_idx = np.argwhere(data.spikes['cluster_id'] == n_ID)[0][0]
                     ls_protocolspikes.append(data.spikes['total_spike_counts'][n_idx])
                 else:
@@ -271,6 +293,8 @@ class QC(object):
         d_thresh_vals = {'n_thresh': n_thresh, 'b_keep_below': b_keep_below, 'b_by_type': False}
 
         # Apply absolute threshold to df_keep
+        str_compare = '<' if b_keep_below else '>'
+        print(f'Setting {str_param} threshold at {str_compare} {n_thresh}.')
         df_qc = self.df_qc
         df_keep = self.d_thresh[str_set]['df_keep']
         if b_keep_below:
@@ -278,14 +302,19 @@ class QC(object):
         else:
             df_keep[str_param] = df_qc[str_param] > n_thresh
         d_thresh_vals['n_cells'] = df_keep[str_param].sum()
+        print(f'{d_thresh_vals["n_cells"]}/{self.N_CELLS} total cells kept.')
 
         for str_type in self.data.ls_RGC_labels:
             n_total = df_keep[df_keep['cell_type'] == str_type].shape[0]
             d_thresh_vals[f'n_{str_type}'] = df_keep[df_keep['cell_type'] == str_type][str_param].sum()
             d_thresh_vals[f'pct_{str_type}'] = d_thresh_vals[f'n_{str_type}'] / n_total
-            print(f'{str_type}: {d_thresh_vals[f"n_{str_type}"]} / {n_total} = {d_thresh_vals[f"pct_{str_type}"]:.2f}')
+            #print(f'{str_type}: {d_thresh_vals[f"n_{str_type}"]} / {n_total} = {d_thresh_vals[f"pct_{str_type}"]:.2f}')
 
         self.d_thresh[str_set][str_param] = d_thresh_vals
+
+        # Print summary by main cell types
+        print_type_summary(df_keep, str_param, self.ls_RGC_labels)
+
     
     def set_pct_thresh_by_type(self, str_set, str_param, n_top_pct):
         # Set threshold for str_param in str_set
@@ -295,6 +324,7 @@ class QC(object):
         df_qc = self.df_qc
         df_keep = self.d_thresh[str_set]['df_keep']
 
+        print(f'Setting {str_param} top {n_top_pct} percentile threshold.')
         for str_type in self.data.ls_RGC_labels:
             df_qc_slice = df_qc[df_qc['cell_type'] == str_type]
             n_total = df_qc_slice.shape[0]
@@ -303,14 +333,19 @@ class QC(object):
             n_cutoff = np.percentile(arr_param, 100-n_top_pct)
 
             df_keep.loc[slice_idx, str_param] = arr_param > n_cutoff
+            
+            # TODO move away from this dict to a dataframe
             d_thresh_vals[str_type] = n_cutoff
             d_thresh_vals[f'n_{str_type}'] = df_keep.loc[slice_idx, str_param].sum()
             d_thresh_vals[f'pct_{str_type}'] = d_thresh_vals[f'n_{str_type}'] / n_total
-            print(f'{str_type}: {d_thresh_vals[f"n_{str_type}"]} / {n_total} = {d_thresh_vals[f"pct_{str_type}"]:.2f}')
+            #print(f'{str_type}: {d_thresh_vals[f"n_{str_type}"]} / {n_total} = {d_thresh_vals[f"pct_{str_type}"]:.2f}')
         
-        # NaN to True in df_keep
+        # NaN to True in df_keep for cell types not in ls_RGC_labels
         df_keep[str_param].fillna(True, inplace=True)
         self.d_thresh[str_set][str_param] = d_thresh_vals
+
+        # Print summary by main cell types
+        print_type_summary(df_keep, str_param, self.ls_RGC_labels, d_cutoffs=d_thresh_vals)
     
     def plot_dist_by_type(self, str_param, ax=None, b_plot_thresh=False, str_set='set1'):
         if ax is None:
@@ -318,7 +353,8 @@ class QC(object):
         df_plot = self.df_qc[self.df_qc['cell_type'].isin(self.data.ls_RGC_labels)]
         sns.boxplot(x='cell_type', y=str_param, data=df_plot, ax=ax,
             order=self.data.ls_RGC_labels)
-        
+        ax.set_ylabel('')
+        ax.set_title(str_param)
 
         if b_plot_thresh and str_set in self.d_thresh.keys():
             # Plot threshold
@@ -387,5 +423,14 @@ class QC(object):
         arr_intersection = np.all(arr_keep, axis=1)
         return df_keep.index[arr_intersection].values
 
+    def plot_mosaics(self, str_set='set1'):
+        # Plot mosaics for all cells, and for intersection cells
+        _ = sp.plot_type_rfs(self.data, d_IDs=self.data.types.d_main_IDs, b_zoom=True)
+
+        good_ids = self.get_intersection_cells(str_set)
+        d_good_IDs = {}
+        for str_type in self.ls_RGC_labels:
+            d_good_IDs[str_type] = np.intersect1d(self.data.types.d_main_IDs[str_type], good_ids)
+        _ = sp.plot_type_rfs(self.data, d_IDs=d_good_IDs, b_zoom=True)
 
     
