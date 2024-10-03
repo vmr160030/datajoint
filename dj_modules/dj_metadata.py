@@ -38,9 +38,9 @@ class EpochGroup(dj.Manual):
     # Epoch group is a collection of epoch blocks, which is a collection of individual epochs.
     -> Protocol
     group_idx       : int
-    ---
     group_label     : varchar(200)
     source_label    : varchar(200)
+    NDF           : float
     """
 
 @schema
@@ -225,12 +225,12 @@ class ISIViolations(dj.Computed):
     """
 
 @schema
-class EICorrelation(dj.Computed):
+class EICorrelation(dj.Manual):
     definition = """
     # EI correlation
-    -> SortingChunk.proj(noise_data_file='data_file')
-    -> SortingChunk.proj(protocol_data_file='data_file')
-    cell_id: int
+    -> DataFile.proj(noise_data_file='data_file', noise_g_idx='group_idx', noise_b_idx='block_idx', noise_protocol_id='protocol_id')
+    -> DataFile.proj(protocol_data_file='data_file', protocol_g_idx='group_idx', protocol_b_idx='block_idx')
+    -> Cell
     ---
     ei_corr: float
     """
@@ -343,7 +343,6 @@ def load_metadata(str_metadata_dir):
                         d_gdata['source_label'] = d_group['source']['label']
                     else:
                         d_gdata['source_label'] = ''
-                    ls_group_data.append(d_gdata.copy())
 
                     for b_idx, d_block in enumerate(block):
                         epoch = d_block['epoch']
@@ -372,8 +371,12 @@ def load_metadata(str_metadata_dir):
                             d_edata['bath_temperature'] = 0#d_epoch['properties']['bathTemperature']
                             # d_edata['backgrounds'] = d_epoch['backgrounds']
                             d_edata['parameters'] = d_epoch['parameters']
+                            # d_gdata['NDF'] = d_epoch['parameters']['background:FilterWheel:NDF']
                             ls_epoch_data.append(d_edata.copy())
+                            
                         ls_block_data.append(d_bdata.copy())
+                    
+                    ls_group_data.append(d_gdata.copy())
 
                 ls_protocol_data.append(d_pdata.copy())
         Protocol.insert(ls_protocol_data, skip_duplicates=True)
@@ -393,12 +396,40 @@ def load_metadata(str_metadata_dir):
     print(f'Added {len(ls_new_json)} new experiments')
 
 
-def meta_from_protocol(ls_protocol_ids):
+def meta_from_protocol(ls_protocol_ids: list)->pd.DataFrame:
+    """Get metadata dataframe from list of protocol ids.
+
+    Args:
+        ls_protocol_ids (list): List of protocol ids
+
+    Returns:
+        pd.DataFrame: Metadata dataframe
+    """
     df_chunk = (DataFile() & [f'protocol_id = "{str_protocol_id}"' for str_protocol_id in ls_protocol_ids]).fetch(format='frame')
     df_epoch = (EpochBlock() & [f'protocol_id = "{str_protocol_id}"' for str_protocol_id in ls_protocol_ids]).fetch(format='frame')
+    df_egroups = (EpochGroup() & [f'protocol_id = "{str_protocol_id}"' for str_protocol_id in ls_protocol_ids]).fetch(format='frame')
 
     # Join
     df_meta = df_chunk.join(df_epoch)
+    df_meta = df_meta.join(df_egroups)
+    return df_meta
+
+def meta_from_date(ls_date_ids: list)->pd.DataFrame:
+    """Get metadata dataframe for a list of date_ids.
+
+    Args:
+        ls_protocol_ids (list): List of protocol ids
+
+    Returns:
+        pd.DataFrame: Metadata dataframe
+    """
+    df_chunk = (DataFile() & [f'date_id = "{str_protocol_id}"' for str_protocol_id in ls_date_ids]).fetch(format='frame')
+    df_epoch = (EpochBlock() & [f'date_id = "{str_protocol_id}"' for str_protocol_id in ls_date_ids]).fetch(format='frame')
+    df_egroups = (EpochGroup() & [f'date_id = "{str_protocol_id}"' for str_protocol_id in ls_date_ids]).fetch(format='frame')
+
+    # Join
+    df_meta = df_chunk.join(df_epoch)
+    df_meta = df_meta.join(df_egroups)
     return df_meta
 
 
@@ -424,6 +455,7 @@ def meta_from_epochs(epochs):
     dates, data_files = np.unique(meta, axis=1)
     df_block = (EpochBlock() & [f'data_file="{data_file}"' for data_file in data_files] & [f'date_id="{date}"' for date in dates]).fetch(format='frame')
     df_chunk = (DataFile() & [f'data_file="{data_file}"' for data_file in data_files] & [f'date_id="{date}"' for date in dates]).fetch(format='frame')
+   
 
     chunk_data_files = df_chunk.index.get_level_values('data_file')
     if len(chunk_data_files) != len(data_files):
@@ -457,6 +489,9 @@ def celltyping_from_meta(df_meta, verbose=False):
             elif verbose:
                 print(f"no cell typing for {date_id} {chunk_id}")
 
+    if len(ls_df_ct) == 0:
+        print('No cell typing found')
+        return None
     df_ct = pd.concat(ls_df_ct)
 
     return df_ct
