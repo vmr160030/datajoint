@@ -231,7 +231,7 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
 
     return axs
 
-def plot_type_rfs_and_tcs(data: so.SpikeOutputs, ls_RGC_keys=['OffP', 'OffM', 'OnP', 'OnM', 'SBC']):
+def plot_type_rfs_and_tcs(data: so.SpikeOutputs, ls_RGC_keys=None):#['OffP', 'OffM', 'OnP', 'OnM', 'SBC']):
     rf_axs = plot_type_rfs(data, ls_RGC_keys)
     tc_axs = plot_type_tcs(data, ls_RGC_keys)
 
