@@ -16,6 +16,31 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from IPython.display import display, HTML
+import visionloader as vl
+
+def get_acf_from_vcd(vcd: vl.VisionCellDataTable, cell_ids: np.ndarray, 
+                     bin_edges=np.linspace(0,300,301)):
+    # Modified from symphony_data.py for convenience
+    isi = dict()
+    for cell in cell_ids:
+        spike_times = vcd.get_spike_times_for_cell(cell) / 20000 * 1000 # ms
+        
+        # Compute the interspike interval
+        if len(spike_times) > 1:
+            isi_tmp = np.diff(spike_times)
+            isi[cell] = np.histogram(isi_tmp,bins=bin_edges)[0]
+        else:
+            isi[cell] = np.zeros((len(bin_edges)-1,)).astype(int)
+    
+    ids_noise_isi = np.array(list(isi.keys()))
+    acf = np.zeros((len(ids_noise_isi), len(bin_edges)-1))
+    for idx, n_ID in enumerate(list(isi.keys())):
+        if np.sum(isi[n_ID]) > 0:
+            acf[idx] = isi[n_ID] / np.sum(isi[n_ID])
+        else:
+            acf[idx] = isi[n_ID]
+    
+    return acf
 
 def print_type_summary(df_keep: pd.DataFrame, str_param: str, ls_RGC_labels: list,
                        d_cutoffs: dict=None):
@@ -259,16 +284,24 @@ class QC(object):
         n_refractory_period = 1.5 # ms
         self.n_refractory_period = n_refractory_period
         isi_bin_edges = data.isi[data.str_noise_protocol]['isi_bin_edges']
-        isi_bin_edges = np.array([(isi_bin_edges[i], isi_bin_edges[i+1]) for i in range(len(isi_bin_edges)-1)])
-        n_bin_max = np.argwhere(isi_bin_edges[:,1] <= n_refractory_period)[-1][0] + 1
+        isi_bins = np.array([(isi_bin_edges[i], isi_bin_edges[i+1]) for i in range(len(isi_bin_edges)-1)])
+        n_bin_max = np.argwhere(isi_bins[:,1] <= n_refractory_period)[-1][0] + 1
         print(f'Using first {n_bin_max} bins for refractory period calculation.')
-        print(f'isi_bin_edges: {isi_bin_edges[:n_bin_max]}')
-        noise_isi = data.isi[data.str_noise_protocol]['acf']
+        print(f'isi_bins: {isi_bins[:n_bin_max]}')
+
+        # Get noise ISI violations
+        # noise_isi = data.isi[data.str_noise_protocol]['acf']
+        
+        # TODO: some cases where the data isi pulled from noise data files 
+        # does not match the chunk vcd. Need to investigate.
+        # For now use chunk vcd.
+        noise_ids = np.array(list(data.d_sta.keys())) # Using d_sta as that has keys with RF fit data.
+        noise_isi = get_acf_from_vcd(data.vcd,noise_ids, isi_bin_edges)
         pct_refractory = np.sum(noise_isi[:,:n_bin_max], axis=1) * 100
         self.pct_refractory = pct_refractory
         
-        ids_noise_isi = data.isi[data.str_noise_protocol]['isi_cluster_id']
-        self.df_qc.loc[ids_noise_isi, 'noise_isi_violations'] = pct_refractory
+        # ids_noise_isi = data.isi[data.str_noise_protocol]['isi_cluster_id']
+        self.df_qc.loc[noise_ids, 'noise_isi_violations'] = pct_refractory
 
         # Get protocol data
         if not b_noise_only:
@@ -423,14 +456,15 @@ class QC(object):
         arr_intersection = np.all(arr_keep, axis=1)
         return df_keep.index[arr_intersection].values
 
-    def plot_mosaics(self, str_set='set1'):
+    def plot_mosaics(self, str_set='set1', sd_mult=1):
         # Plot mosaics for all cells, and for intersection cells
-        _ = sp.plot_type_rfs(self.data, d_IDs=self.data.types.d_main_IDs, b_zoom=True)
+        _ = sp.plot_type_rfs(self.data, d_IDs=self.data.types.d_main_IDs, b_zoom=True,
+                             sd_mult=sd_mult)
 
         good_ids = self.get_intersection_cells(str_set)
         d_good_IDs = {}
         for str_type in self.ls_RGC_labels:
             d_good_IDs[str_type] = np.intersect1d(self.data.types.d_main_IDs[str_type], good_ids)
-        _ = sp.plot_type_rfs(self.data, d_IDs=d_good_IDs, b_zoom=True)
+        _ = sp.plot_type_rfs(self.data, d_IDs=d_good_IDs, b_zoom=True, sd_mult=sd_mult)
 
     
