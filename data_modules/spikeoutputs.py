@@ -289,7 +289,6 @@ class SpikeOutputs(object):
         print('Saved to ' + str_path)
 
     def load_pkl(self, str_path: str):
-        import meaqc
         with open(str_path, 'rb') as f:
             d_load = pickle.load(f)
         self.stim = d_load['stim']
@@ -299,9 +298,7 @@ class SpikeOutputs(object):
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.str_protocol = d_load['str_protocol']
         self.param_names = d_load['param_names']
-
-        qc = meaqc.QC(self)
-        qc.update_ids(good_ids=d_load['GOOD_CELL_IDS'])
+        self.update_ids(d_load['GOOD_CELL_IDS'])        
 
         # Check if d_sta is present
         if 'd_sta' in d_load.keys():
