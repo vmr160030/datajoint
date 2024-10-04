@@ -157,7 +157,7 @@ def filter_low_crf_f1(data: so.SpikeOutputs, crf_datafile, n_percentile=10, cont
     print('Done.')
 
 def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=True,
-                sd_mult=1):
+                sd_mult=1, b_verbose=False):
     type_IDs = data.types.d_main_IDs[str_type].astype(int)
     n_type_cells = len(type_IDs)
 
@@ -184,7 +184,8 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=T
         # Find min dist
         min_idx = np.unravel_index(np.argmin(dedup_dist), dedup_dist.shape)
         # print(min_idx)
-        print(f'Min dist bw {type_IDs[min_idx[0]]} and {type_IDs[dedup_cidx[min_idx[1]]]}: {dedup_dist[min_idx]:.2f}')
+        if b_verbose:
+            print(f'Min dist bw {type_IDs[min_idx[0]]} and {type_IDs[dedup_cidx[min_idx[1]]]}: {dedup_dist[min_idx]:.2f}')
         
         # Remove col from copy
         dedup_dist = np.delete(dedup_dist, min_idx[1], axis=1)
@@ -201,7 +202,8 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=T
         removed_ids = np.setdiff1d(type_IDs, dedup_id)
         new_removed = np.setdiff1d(removed_ids, ls_already_removed)
         ls_already_removed += list(removed_ids)
-        print(f'Removed {new_removed}')
+        if b_verbose:
+            print(f'Removed {new_removed}')
 
     # Save deduped IDs
     dedup_id = np.array([type_IDs[i] for i in dedup_cidx])
@@ -225,7 +227,6 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=T
 
 def find_dup_thresh(data: so.SpikeOutputs, str_type: str, arr_thresh=np.arange(20,100,5)):
     # For each threshold, plot number of cells remaining
-    type_IDs = data.types.d_main_IDs[str_type]
     ls_n_cells = []
     for thresh in arr_thresh:
         _, dedup_id = remove_dups(data, thresh, str_type, b_update=False, b_plot=False)
@@ -467,4 +468,17 @@ class QC(object):
             d_good_IDs[str_type] = np.intersect1d(self.data.types.d_main_IDs[str_type], good_ids)
         _ = sp.plot_type_rfs(self.data, d_IDs=d_good_IDs, b_zoom=True, sd_mult=sd_mult)
 
-    
+    def update_ids(self, str_set='set1'):
+        # Update GOOD_CELL_IDS with intersection cells
+        good_ids = self.get_intersection_cells(str_set)
+        self.data.GOOD_CELL_IDS = good_ids
+        self.data.N_GOOD_CELLS = len(good_ids)
+        print(f'Updating GOOD_CELL_IDS to {self.data.N_GOOD_CELLS} cells.')
+        
+        # Update d_main_IDs
+        for str_type in self.data.types.d_main_IDs.keys():
+            type_ids = self.data.types.d_main_IDs[str_type]
+            new_ids = np.intersect1d(type_ids, good_ids)
+            self.data.types.d_main_IDs[str_type] = new_ids
+            print(f'{str_type}: {len(new_ids)}/{len(type_ids)}')
+        
