@@ -66,8 +66,11 @@ class CellTypes(object):
             for str_RGC in self.ls_RGC_labels:
                 # Check if the label is present in classification file
                 if str_RGC in arr_labels:
-                    print('Number of {}: {}'.format(
-                        str_RGC, arr_numcells[arr_labels == str_RGC][0]))
+                    # print('Number of {}: {}'.format(
+                    #     str_RGC, arr_numcells[arr_labels == str_RGC][0]))
+                    n_type_ids = len(self.d_main_IDs[str_RGC])
+                    n_all_type_ids = arr_numcells[arr_labels == str_RGC][0]
+                    print(f'{str_RGC} ({n_type_ids}/{n_all_type_ids})')
                 else:
                     print('Number of {}: {}'.format(str_RGC, 0))
         else:
