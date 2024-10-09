@@ -207,7 +207,7 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_plot=True,
 
     # Save deduped IDs
     dedup_id = np.array([type_IDs[i] for i in dedup_cidx])
-    # data.types.d_main_IDs[str_type+'_dd'] = dedup_id
+    data.types.d_main_IDs[str_type+'_dd'] = dedup_id
 
     # Plot
     if b_plot:
