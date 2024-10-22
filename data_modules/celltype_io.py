@@ -12,8 +12,10 @@ class CellTypes(object):
     def __init__(self, str_txt, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM']):
         self.str_txt = str_txt
         try:
-            # self.arr_types = np.loadtxt(str_txt, dtype=str, sep='  ')
-            self.arr_types = np.genfromtxt(str_txt, dtype=str, delimiter='  ')
+            # self.arr_types = np.loadtxt(str_txt, dtype=str, sep=',')
+            self.arr_types = np.genfromtxt(str_txt, dtype=str, delimiter=",")
+            print(arr_types.shape)
+            print(str_txt)
         except Exception as e:
             print('Error reading file: {}'.format(e))
             self.arr_types = np.array([])
@@ -23,7 +25,7 @@ class CellTypes(object):
         if len(self.arr_types.shape) != 2:
             print(f'Error: 2 space delimiter resulted in {self.arr_types.shape} shape')
             # Try 1 space delimiter
-            self.arr_types = np.genfromtxt(str_txt, dtype=str, delimiter=' ')
+            self.arr_types = np.genfromtxt(str_txt, dtype=str, delimiter=',')
             if len(self.arr_types.shape) != 2:
                 print(f'Error: 1 space delimiter resulted in {self.arr_types.shape} shape')
                 self.arr_types = np.array([])
