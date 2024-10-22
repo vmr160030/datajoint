@@ -46,7 +46,7 @@ class SpikeOutputs(object):
         self.spikes = {}
         self.isi = {}
 
-        self.ARR_CELL_IDS = np.array([])
+        self.ARR_CELL_IDS = np.array([], dtype=int)
 
         # Load classifications if provided
         if str_classification is not None:
@@ -74,7 +74,8 @@ class SpikeOutputs(object):
 
             else:
                 raise ValueError('Data file must be .mat or .p')
-            self.ARR_CELL_IDS = np.union1d(np.array(self.spikes['cluster_id']).flatten(), self.ARR_CELL_IDS)
+            ids = np.array(self.spikes['cluster_id']).flatten().astype(int)
+            self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
             self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
             self.N_CELLS = len(self.ARR_CELL_IDS)
     
@@ -132,7 +133,8 @@ class SpikeOutputs(object):
 
             print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
                 
-        self.ARR_CELL_IDS = np.union1d(np.array(sta_cell_ids), self.ARR_CELL_IDS)
+        ids = np.array(sta_cell_ids).astype(int)
+        self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
         self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
@@ -173,11 +175,12 @@ class SpikeOutputs(object):
             self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
         
 
-    def load_psth(self, str_protocol, ls_param_names, bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601)):
+    def load_psth(self, str_protocol, ls_param_names, 
+                  bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601),
+                  b_load_isi=True):
         c_data = sd.Dataset(self.str_experiment)
         self.param_names = ls_param_names
         self.str_protocol = str_protocol
-        self.bin_rate = bin_rate
 
         spike_dict, cluster_id, params, unique_params, pre_pts, stim_pts, tail_pts = c_data.get_spike_rate_and_parameters(
         str_protocol, None, self.param_names, sort_algorithm=self.str_algo, bin_rate=bin_rate, sample_rate=20000,
@@ -208,18 +211,21 @@ class SpikeOutputs(object):
 
         self.stim = {'params': params, 'unique_params': unique_params, 
              'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
-             'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt}
+             'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
+             'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
         self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
                        'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
                        'total_spike_counts': spike_counts}
         
-        self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, np.array(cluster_id))
+        ids = np.array(cluster_id).astype(int)
+        self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
         self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
 
-        # Load protocol ISI
-        self.load_isi(str_protocol, bin_edges=isi_bin_edges, c_data=c_data, file_names=self.ls_filenames)
+        if b_load_isi:
+            # Load protocol ISI
+            self.load_isi(str_protocol, bin_edges=isi_bin_edges, c_data=c_data, file_names=self.ls_filenames)
 
     def load_isi(self, str_protocol, bin_edges=np.linspace(0,300,601), c_data=None, file_names=None):
         # Get ISI
@@ -264,7 +270,8 @@ class SpikeOutputs(object):
         if not str_path:
             str_path = os.path.join(self.str_experiment, self.str_datafile)
         d_save = {'stim': self.stim, 'spikes': self.spikes, 
-                  'isi': self.isi, 'ARR_CELL_IDS': self.ARR_CELL_IDS, 'GOOD_CELL_IDS': self.GOOD_CELL_IDS}
+                  'isi': self.isi, 'ARR_CELL_IDS': self.ARR_CELL_IDS, 'GOOD_CELL_IDS': self.GOOD_CELL_IDS,
+                  'str_protocol': self.str_protocol, 'param_names': self.param_names}
                   
         
         # Check if d_sta is present
@@ -288,9 +295,10 @@ class SpikeOutputs(object):
         self.spikes = d_load['spikes']
         self.isi = d_load['isi']
         self.ARR_CELL_IDS = d_load['ARR_CELL_IDS']
-        self.GOOD_CELL_IDS = d_load['GOOD_CELL_IDS']
         self.N_CELLS = len(self.ARR_CELL_IDS)
-        self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+        self.str_protocol = d_load['str_protocol']
+        self.param_names = d_load['param_names']
+        self.update_ids(d_load['GOOD_CELL_IDS'])        
 
         # Check if d_sta is present
         if 'd_sta' in d_load.keys():
@@ -303,3 +311,15 @@ class SpikeOutputs(object):
         if 'd_sta_convex_hull' in d_load.keys():
             self.d_sta_convex_hull = d_load['d_sta_convex_hull']
         print('Loaded from ' + str_path)
+
+    def update_ids(self, good_ids: np.ndarray):
+        self.GOOD_CELL_IDS = good_ids
+        self.N_GOOD_CELLS = len(good_ids)
+        print(f'Updating GOOD_CELL_IDS to {self.N_GOOD_CELLS} cells.')
+        
+        # Update d_main_IDs
+        for str_type in self.types.d_main_IDs.keys():
+            type_ids = self.types.d_main_IDs[str_type]
+            new_ids = np.intersect1d(type_ids, good_ids)
+            self.types.d_main_IDs[str_type] = new_ids
+            print(f'{str_type}: {len(new_ids)}/{len(type_ids)}')

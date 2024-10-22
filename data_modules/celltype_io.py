@@ -6,7 +6,9 @@ Thursday, Mar 2, 2023
 
 import numpy as np
 
+
 class CellTypes(object):
+
     def __init__(self, str_txt, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM']):
         self.str_txt = str_txt
         try:
@@ -17,6 +19,16 @@ class CellTypes(object):
             self.arr_types = np.array([])
             self.d_types = {}
 
+        # Check that arr_types has 2 columns
+        if len(self.arr_types.shape) != 2:
+            print(f'Error: 2 space delimiter resulted in {self.arr_types.shape} shape')
+            # Try 1 space delimiter
+            self.arr_types = np.genfromtxt(str_txt, dtype=str, delimiter=' ')
+            if len(self.arr_types.shape) != 2:
+                print(f'Error: 1 space delimiter resulted in {self.arr_types.shape} shape')
+                self.arr_types = np.array([])
+                self.d_types = {}
+                return            
 
         # self.ls_RGC_labels = ['OffP', 'OffM', 'OnP', 'OnM']
         self.ls_RGC_labels = ls_RGC_labels
@@ -26,12 +38,14 @@ class CellTypes(object):
         for c_idx in range(len(self.arr_types)):
             n_ID = int(self.arr_types[c_idx, 0])
             str_type = self.arr_types[c_idx, 1]
-            
+
             # Check if RGC label match in str_type
             for str_RGC in self.ls_RGC_labels:
-                if str_RGC in str_type.split('/'):
+                ls_split = str_type.split('/')
+                ls_split = [x.lower() for x in ls_split]
+                if str_RGC.lower() in ls_split:
                     str_type = str_RGC
-                
+
             # If no match, then retain original str_type
             self.d_types[n_ID] = str_type
 
@@ -45,26 +59,32 @@ class CellTypes(object):
 
     def print_summary(self, b_only_main_types=False):
         print('Total number of cells: {}'.format(len(self.d_types)))
-        arr_labels, arr_numcells = np.unique(list(self.d_types.values()), return_counts=True)
-        
+        arr_labels, arr_numcells = np.unique(list(self.d_types.values()),
+                                             return_counts=True)
+
         if b_only_main_types:
             for str_RGC in self.ls_RGC_labels:
                 # Check if the label is present in classification file
                 if str_RGC in arr_labels:
-                    print('Number of {}: {}'.format(str_RGC, arr_numcells[arr_labels == str_RGC][0]))
+                    # print('Number of {}: {}'.format(
+                    #     str_RGC, arr_numcells[arr_labels == str_RGC][0]))
+                    n_type_ids = len(self.d_main_IDs[str_RGC])
+                    n_all_type_ids = arr_numcells[arr_labels == str_RGC][0]
+                    print(f'{str_RGC} ({n_type_ids}/{n_all_type_ids})')
                 else:
                     print('Number of {}: {}'.format(str_RGC, 0))
         else:
             for type_idx in range(len(arr_labels)):
-                print('Number of {}: {}'.format(arr_labels[type_idx], arr_numcells[type_idx]))
+                print('Number of {}: {}'.format(arr_labels[type_idx],
+                                                arr_numcells[type_idx]))
 
     def get_ids_of_type(self, str_type):
         ls_cellids = []
         for n_ID in self.d_types.keys():
-            if self.d_types[n_ID] == str_type:
+            if self.d_types[n_ID].lower() == str_type.lower():
                 ls_cellids.append(n_ID)
         return np.array(ls_cellids)
-    
+
 def map_ids_to_idx(arr_source_IDs, arr_target_IDs, verbose=False):
     """
     Map cell IDs in arr_source_IDs to indices in arr_target_IDs
@@ -76,5 +96,5 @@ def map_ids_to_idx(arr_source_IDs, arr_target_IDs, verbose=False):
         except:
             if verbose:
                 print('Cell ID {} not found in data'.format(arr_source_IDs[idx]))
-            arr_idx[idx] = -1 # This will have to be accounted for later               
+            arr_idx[idx] = -1 # This will have to be accounted for later
     return arr_idx

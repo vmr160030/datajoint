@@ -15,6 +15,54 @@ import pickle
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+from IPython.display import display, HTML
+import visionloader as vl
+
+def get_acf_from_vcd(vcd: vl.VisionCellDataTable, cell_ids: np.ndarray, 
+                     bin_edges=np.linspace(0,300,301)):
+    # Modified from symphony_data.py for convenience
+    isi = dict()
+    for cell in cell_ids:
+        spike_times = vcd.get_spike_times_for_cell(cell) / 20000 * 1000 # ms
+        
+        # Compute the interspike interval
+        if len(spike_times) > 1:
+            isi_tmp = np.diff(spike_times)
+            isi[cell] = np.histogram(isi_tmp,bins=bin_edges)[0]
+        else:
+            isi[cell] = np.zeros((len(bin_edges)-1,)).astype(int)
+    
+    ids_noise_isi = np.array(list(isi.keys()))
+    acf = np.zeros((len(ids_noise_isi), len(bin_edges)-1))
+    for idx, n_ID in enumerate(list(isi.keys())):
+        if np.sum(isi[n_ID]) > 0:
+            acf[idx] = isi[n_ID] / np.sum(isi[n_ID])
+        else:
+            acf[idx] = isi[n_ID]
+    
+    return acf
+
+def print_type_summary(df_keep: pd.DataFrame, str_param: str, ls_RGC_labels: list,
+                       d_cutoffs: dict=None):
+    # Print summary by main cell types
+    df_print = df_keep.groupby('cell_type').agg({str_param: 'sum'})
+    # Add column for total cells of each type
+    df_print['n_total'] = df_keep['cell_type'].value_counts()
+    df_print['pct'] = df_print[str_param] / df_print['n_total']
+    # pct to string with 2 decimal places
+    df_print['pct'] = df_print['pct'].apply(lambda x: f'{x:.2f}')
+    df_print = df_print.loc[ls_RGC_labels]
+    # Rename str_param column to n_good str_param for clarity
+    df_print.rename(columns={str_param: 'n_good'}, inplace=True)
+
+    # If d_cutoffs is provided, add cutoffs to df_print
+    if d_cutoffs is not None:
+        for str_type in ls_RGC_labels:
+            df_print.loc[str_type, 'cutoff'] = d_cutoffs[str_type]
+        # If any cutoffs are 0, print warning
+        if np.any(df_print['cutoff'] == 0):
+            print('Warning: Some cutoffs are 0. Pct targets may not be met.')
+    display(df_print)
 
 def remove_cells_by_ids(data: so.SpikeOutputs, ids):
     """Remove cells from SpikeOutputs object by ids
@@ -108,9 +156,9 @@ def filter_low_crf_f1(data: so.SpikeOutputs, crf_datafile, n_percentile=10, cont
     data.d_crf = d_crf
     print('Done.')
 
-def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=True,
-                sd_mult=1):
-    type_IDs = data.types.d_main_IDs[str_type]
+def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_plot=True,
+                sd_mult=1, b_verbose=False):
+    type_IDs = data.types.d_main_IDs[str_type].astype(int)
     n_type_cells = len(type_IDs)
 
     rfs = [(data.d_sta[str_ID]['x0']*data.NOISE_GRID_SIZE, 
@@ -121,29 +169,44 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=T
     arr_dist[:] = np.inf
 
     dist_idx = (range(n_type_cells), range(n_type_cells))
-    for i in dist_idx[0]:
-        for j in dist_idx[1]:
+    for i in range(n_type_cells):
+        for j in range(i+1, n_type_cells):
             if i != j:
                 arr_dist[i, j] = np.sqrt((rfs[i][0] - rfs[j][0])**2 + (rfs[i][1] - rfs[j][1])**2)
 
     # Copy of RFs and dist
-    dedup_idx = np.arange(n_type_cells)
+    dedup_cidx = np.arange(n_type_cells)
     dedup_dist = arr_dist.copy()
     
     # While loop through copy. If distance < thresh, remove from copy.
+    ls_already_removed = []
     while np.any(dedup_dist < thresh):
         # Find min dist
         min_idx = np.unravel_index(np.argmin(dedup_dist), dedup_dist.shape)
+        # print(min_idx)
+        if b_verbose:
+            print(f'Min dist bw {type_IDs[min_idx[0]]} and {type_IDs[dedup_cidx[min_idx[1]]]}: {dedup_dist[min_idx]:.2f}')
         
-        # Remove row and col from copy
-        dedup_dist = np.delete(dedup_dist, min_idx[0], axis=0)
+        # Remove col from copy
         dedup_dist = np.delete(dedup_dist, min_idx[1], axis=1)
+
         
         # Remove from idx
-        dedup_idx = np.delete(dedup_idx, min_idx[0])
+        # dedup_idx = np.delete(dedup_idx, min_idx[0])
+        # mask = np.ones(len(dedup_idx), dtype=bool)
+        # mask[min_idx[0]] = False
+        # dedup_idx = dedup_idx[mask]
+        # dedup_ridx = np.delete(dedup_ridx, min_idx[0])
+        dedup_cidx = np.delete(dedup_cidx, min_idx[1])
+        dedup_id = np.array([type_IDs[i] for i in dedup_cidx])
+        removed_ids = np.setdiff1d(type_IDs, dedup_id)
+        new_removed = np.setdiff1d(removed_ids, ls_already_removed)
+        ls_already_removed += list(removed_ids)
+        if b_verbose:
+            print(f'Removed {new_removed}')
 
     # Save deduped IDs
-    dedup_id = np.array([type_IDs[i] for i in dedup_idx])
+    dedup_id = np.array([type_IDs[i] for i in dedup_cidx])
     data.types.d_main_IDs[str_type+'_dd'] = dedup_id
 
     # Plot
@@ -155,19 +218,18 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_update=True, b_plot=T
         # del self.types.d_main_IDs[str_type+'_dd']
 
     # Update data
-    if b_update:
-        data.types.d_main_IDs[str_type+'_all'] = type_IDs
-        data.types.d_main_IDs[str_type] = dedup_id
+    # if b_update:
+        # data.types.d_main_IDs[str_type+'_all'] = type_IDs
+        # data.types.d_main_IDs[str_type] = dedup_id
 
     
     return dedup_dist, dedup_id
 
 def find_dup_thresh(data: so.SpikeOutputs, str_type: str, arr_thresh=np.arange(20,100,5)):
     # For each threshold, plot number of cells remaining
-    type_IDs = data.types.d_main_IDs[str_type]
     ls_n_cells = []
     for thresh in arr_thresh:
-        _, dedup_id = remove_dups(data, thresh, str_type, b_update=False, b_plot=False)
+        _, dedup_id = remove_dups(data, thresh, str_type, b_plot=False)
         ls_n_cells.append(len(dedup_id))
     f, ax = plt.subplots()
     ax.plot(arr_thresh, ls_n_cells)
@@ -196,13 +258,12 @@ class QC(object):
 
         # Get IDs for noise and protocol
         self.noise_ids = np.array(list(data.vcd.main_datatable.keys()))
-        
 
         # Populate total spike counts
         ls_noisespikes = []
         ls_protocolspikes = []
         ls_celltypes = []
-        for n_ID in self.ARR_CELL_IDS:
+        for n_ID in self.df_qc.index:
             # Check if n_ID in vcd
             try:   #RACHEL added try/except to handle cells in VCD without SpikeTimes key
                 if n_ID in data.vcd.main_datatable.keys():
@@ -218,49 +279,76 @@ class QC(object):
                 ls_celltypes.append('not in typing.txt')
         
         self.df_qc['cell_type'] = ls_celltypes
-        # Dict for threshold sets
-        self.d_thresh = {'set1': {'df_keep': self.df_qc.copy()}}
         self.df_qc['noise_spikes'] = ls_noisespikes
-       
+        self.df_qc['noise_spikes'] = self.df_qc['noise_spikes'].astype(int)
         
         # populate noise ISI violations
         n_refractory_period = 1.5 # ms
         self.n_refractory_period = n_refractory_period
         isi_bin_edges = data.isi[data.str_noise_protocol]['isi_bin_edges']
-        isi_bin_edges = np.array([(isi_bin_edges[i], isi_bin_edges[i+1]) for i in range(len(isi_bin_edges)-1)])
-        n_bin_max = np.argwhere(isi_bin_edges[:,1] <= n_refractory_period)[-1][0] + 1
+        isi_bins = np.array([(isi_bin_edges[i], isi_bin_edges[i+1]) for i in range(len(isi_bin_edges)-1)])
+        n_bin_max = np.argwhere(isi_bins[:,1] <= n_refractory_period)[-1][0] + 1
         print(f'Using first {n_bin_max} bins for refractory period calculation.')
-        print(f'isi_bin_edges: {isi_bin_edges[:n_bin_max]}')
-        noise_isi = data.isi[data.str_noise_protocol]['acf']
+        print(f'isi_bins: {isi_bins[:n_bin_max]}')
+
+        # Get noise ISI violations
+        # noise_isi = data.isi[data.str_noise_protocol]['acf']
+        
+        # TODO: some cases where the data isi pulled from noise data files 
+        # does not match the chunk vcd. Need to investigate.
+        # For now use chunk vcd.
+        noise_ids = np.array(list(data.d_sta.keys())) # Using d_sta as that has keys with RF fit data.
+        noise_isi = get_acf_from_vcd(data.vcd,noise_ids, isi_bin_edges)
         pct_refractory = np.sum(noise_isi[:,:n_bin_max], axis=1) * 100
         self.pct_refractory = pct_refractory
         
-        ids_noise_isi = data.isi[data.str_noise_protocol]['isi_cluster_id']
-        self.df_qc.loc[ids_noise_isi, 'noise_isi_violations'] = pct_refractory
+        # ids_noise_isi = data.isi[data.str_noise_protocol]['isi_cluster_id']
+        self.df_qc.loc[noise_ids, 'noise_isi_violations'] = pct_refractory
 
         # Get protocol data
         if not b_noise_only:
             self.protocol_ids = np.array(data.spikes['cluster_id'])
-            for n_ID in data.ARR_CELL_IDS:
+            for n_ID in self.df_qc.index:
                 # Check if n_ID in data.spikes['cluster_id']
-                if n_ID in data.spikes['cluster_id']:
+                if n_ID in self.protocol_ids:
                     n_idx = np.argwhere(data.spikes['cluster_id'] == n_ID)[0][0]
                     ls_protocolspikes.append(data.spikes['total_spike_counts'][n_idx])
                 else:
                     ls_protocolspikes.append(0)
             self.df_qc['protocol_spikes'] = ls_protocolspikes
+            self.df_qc['protocol_spikes'] = self.df_qc['protocol_spikes'].astype(int)
             
             # populate protocol ISI violations
             protocol_isi = data.isi[data.str_protocol]['acf']
             pct_refractory = np.sum(protocol_isi[:,:n_bin_max], axis=1) * 100
             self.df_qc.loc[self.protocol_ids, 'protocol_isi_violations'] = pct_refractory
 
+            # print summary of cells with > 0 spikes in both noise and protocol
+            ids_both = self.df_qc[(self.df_qc['noise_spikes'] > 0) & (self.df_qc['protocol_spikes'] > 0)].index.values
+            n_both = len(ids_both)
+
+            print(f'{len(noise_ids)} noise cells, {len(self.protocol_ids)} protocol cells, {n_both} cells with >0 sps in both.')
+            for str_type in self.ls_RGC_labels:
+                n_noise = np.sum(self.df_qc.loc[noise_ids, 'cell_type'] == str_type)
+                n_protocol = np.sum(self.df_qc.loc[self.protocol_ids, 'cell_type'] == str_type)
+                n_both = np.sum(self.df_qc.loc[ids_both, 'cell_type'] == str_type)
+                print(f'{str_type}: {n_noise} noise, {n_protocol} protocol, {n_both} both.')
+            
+            # Keep only cells with > 0 protocol and noise spikes
+            self.df_qc = self.df_qc[(self.df_qc['noise_spikes'] > 0) & (self.df_qc['protocol_spikes'] > 0)]
+
+            self.data.update_ids(good_ids=ids_both)
+
+        # Dict for threshold sets
+        self.d_thresh = {'set1': {'df_keep': self.df_qc.copy()}}
 
     def set_abs_thresh(self, str_set, str_param, n_thresh, b_keep_below=True):
         # Set threshold for str_param in str_set
         d_thresh_vals = {'n_thresh': n_thresh, 'b_keep_below': b_keep_below, 'b_by_type': False}
 
         # Apply absolute threshold to df_keep
+        str_compare = '<' if b_keep_below else '>'
+        print(f'Setting {str_param} threshold at {str_compare} {n_thresh}.')
         df_qc = self.df_qc
         df_keep = self.d_thresh[str_set]['df_keep']
         if b_keep_below:
@@ -268,13 +356,19 @@ class QC(object):
         else:
             df_keep[str_param] = df_qc[str_param] > n_thresh
         d_thresh_vals['n_cells'] = df_keep[str_param].sum()
+        print(f'{d_thresh_vals["n_cells"]}/{self.N_CELLS} total cells kept.')
 
         for str_type in self.data.ls_RGC_labels:
             n_total = df_keep[df_keep['cell_type'] == str_type].shape[0]
             d_thresh_vals[f'n_{str_type}'] = df_keep[df_keep['cell_type'] == str_type][str_param].sum()
             d_thresh_vals[f'pct_{str_type}'] = d_thresh_vals[f'n_{str_type}'] / n_total
+            #print(f'{str_type}: {d_thresh_vals[f"n_{str_type}"]} / {n_total} = {d_thresh_vals[f"pct_{str_type}"]:.2f}')
 
         self.d_thresh[str_set][str_param] = d_thresh_vals
+
+        # Print summary by main cell types
+        print_type_summary(df_keep, str_param, self.ls_RGC_labels)
+
     
     def set_pct_thresh_by_type(self, str_set, str_param, n_top_pct):
         # Set threshold for str_param in str_set
@@ -284,6 +378,7 @@ class QC(object):
         df_qc = self.df_qc
         df_keep = self.d_thresh[str_set]['df_keep']
 
+        print(f'Setting {str_param} top {n_top_pct} percentile threshold.')
         for str_type in self.data.ls_RGC_labels:
             df_qc_slice = df_qc[df_qc['cell_type'] == str_type]
             n_total = df_qc_slice.shape[0]
@@ -292,13 +387,19 @@ class QC(object):
             n_cutoff = np.percentile(arr_param, 100-n_top_pct)
 
             df_keep.loc[slice_idx, str_param] = arr_param > n_cutoff
+            
+            # TODO move away from this dict to a dataframe
             d_thresh_vals[str_type] = n_cutoff
             d_thresh_vals[f'n_{str_type}'] = df_keep.loc[slice_idx, str_param].sum()
             d_thresh_vals[f'pct_{str_type}'] = d_thresh_vals[f'n_{str_type}'] / n_total
+            #print(f'{str_type}: {d_thresh_vals[f"n_{str_type}"]} / {n_total} = {d_thresh_vals[f"pct_{str_type}"]:.2f}')
         
-        # NaN to True in df_keep
+        # NaN to True in df_keep for cell types not in ls_RGC_labels
         df_keep[str_param].fillna(True, inplace=True)
         self.d_thresh[str_set][str_param] = d_thresh_vals
+
+        # Print summary by main cell types
+        print_type_summary(df_keep, str_param, self.ls_RGC_labels, d_cutoffs=d_thresh_vals)
     
     def plot_dist_by_type(self, str_param, ax=None, b_plot_thresh=False, str_set='set1'):
         if ax is None:
@@ -306,7 +407,8 @@ class QC(object):
         df_plot = self.df_qc[self.df_qc['cell_type'].isin(self.data.ls_RGC_labels)]
         sns.boxplot(x='cell_type', y=str_param, data=df_plot, ax=ax,
             order=self.data.ls_RGC_labels)
-        
+        ax.set_ylabel('')
+        ax.set_title(str_param)
 
         if b_plot_thresh and str_set in self.d_thresh.keys():
             # Plot threshold
@@ -361,19 +463,44 @@ class QC(object):
     def plot_report(self, str_param, str_set='set1'):
         f, axs = plt.subplots(nrows=2, ncols=1, figsize=(10,10))
         self.plot_dist_by_type(str_param, ax=axs[0], b_plot_thresh=True, str_set=str_set)
-        # self.plot_pct_by_type(str_param, ax=axs[1], str_set=str_set)
-        self.plot_ncells_by_type(str_param, ax=axs[1], str_set=str_set)
+        self.plot_pct_by_type(str_param, ax=axs[1], str_set=str_set)
+        # self.plot_ncells_by_type(str_param, ax=axs[1], str_set=str_set)
 
         return f, axs
     
-    def get_intersection_cells(self, str_set='set1'):
+    def get_intersection_cells(self, ls_params: list, str_set='set1'):
         # Get cell IDs (index of df_keep) that are True for all parameters
         df_keep = self.d_thresh[str_set]['df_keep']
-        df_keep = df_keep.select_dtypes(include='bool')
+        # df_keep = df_keep.select_dtypes(include='bool') # This is not robust.
+        df_keep = df_keep[ls_params]
         arr_keep = df_keep.values
 
         arr_intersection = np.all(arr_keep, axis=1)
         return df_keep.index[arr_intersection].values
 
+    def plot_mosaics(self, ls_params, str_set='set1', sd_mult=1):
+        # Plot mosaics for all cells, and for intersection cells
+        _ = sp.plot_type_rfs(self.data, d_IDs=self.data.types.d_main_IDs, b_zoom=True,
+                             sd_mult=sd_mult)
 
-    
+        good_ids = self.get_intersection_cells(ls_params, str_set)
+        d_good_IDs = {}
+        for str_type in self.ls_RGC_labels:
+            d_good_IDs[str_type] = np.intersect1d(self.data.types.d_main_IDs[str_type], good_ids)
+        _ = sp.plot_type_rfs(self.data, d_IDs=d_good_IDs, b_zoom=True, sd_mult=sd_mult)
+
+    def update_ids(self, ls_params: list, str_set: str):
+        # Update GOOD_CELL_IDS with intersection cells
+        good_ids = self.get_intersection_cells(ls_params, str_set)
+        self.data.update_ids(good_ids)
+        # self.data.GOOD_CELL_IDS = good_ids
+        # self.data.N_GOOD_CELLS = len(good_ids)
+        # print(f'Updating GOOD_CELL_IDS to {self.data.N_GOOD_CELLS} cells.')
+        
+        # # Update d_main_IDs
+        # for str_type in self.data.types.d_main_IDs.keys():
+        #     type_ids = self.data.types.d_main_IDs[str_type]
+        #     new_ids = np.intersect1d(type_ids, good_ids)
+        #     self.data.types.d_main_IDs[str_type] = new_ids
+        #     print(f'{str_type}: {len(new_ids)}/{len(type_ids)}')
+        

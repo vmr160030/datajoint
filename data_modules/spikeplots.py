@@ -125,7 +125,11 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
         ax.set_ylim(y0_min-pad, y0_max+pad)
     return ax, ells
 
+<<<<<<< HEAD
 def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=['OnP', 'OffM', 'OnP', 'OnM', 'SBC'],
+=======
+def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
+>>>>>>> 50166fd00990e8f1e5996e616037a8f682db3cb3
                     ls_colors = sns.color_palette(), axs=None, ls_facecolors=None, alpha=0.6,
                     b_ticks_off=True, ls_RGC_labels=None, d_IDs=None,
                     b_zoom=False, sd_mult=1.3):
@@ -133,8 +137,8 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=['OnP', 'OffM', 'OnP', 'OnM
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
     
-    # Check that all keys are in d_IDs
-    ls_RGC_keys = np.intersect1d(ls_RGC_keys, list(d_IDs.keys()))
+    if ls_RGC_keys is None:
+        ls_RGC_keys = list(d_IDs.keys())
     
     ncols = len(ls_RGC_keys)
     if axs is None:
@@ -172,11 +176,18 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=['OnP', 'OffM', 'OnP', 'OnM
     
     return axs
 
+<<<<<<< HEAD
 def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=['OnP', 'OffM', 'OnP', 'OnM', 'SBC'],
+=======
+def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
+>>>>>>> 50166fd00990e8f1e5996e616037a8f682db3cb3
                   axs=None, ls_colors = None, alpha=0.6, b_plot_mean=True, ls_RGC_labels=None,
-                  lw=1):
-    # Check that all keys are in data.types.d_main_IDs
-    ls_RGC_keys = np.intersect1d(ls_RGC_keys, list(data.types.d_main_IDs.keys()))
+                  lw=1, d_IDs=None):
+    # If d_IDs is None, use data.types.d_main_IDs
+    if d_IDs is None:
+        d_IDs = data.types.d_main_IDs
+    if ls_RGC_keys is None:
+        ls_RGC_keys = list(d_IDs.keys())
 
     # Plot time courses
     
@@ -228,7 +239,11 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=['OnP', 'OffM', 'OnP', 'OnM
 
     return axs
 
+<<<<<<< HEAD
 def plot_type_rfs_and_tcs(data: so.SpikeOutputs, ls_RGC_keys=['OnP', 'OffM', 'OnP', 'OnM', 'SBC']):
+=======
+def plot_type_rfs_and_tcs(data: so.SpikeOutputs, ls_RGC_keys=None):#['OffP', 'OffM', 'OnP', 'OnM', 'SBC']):
+>>>>>>> 50166fd00990e8f1e5996e616037a8f682db3cb3
     rf_axs = plot_type_rfs(data, ls_RGC_keys)
     tc_axs = plot_type_tcs(data, ls_RGC_keys)
 
