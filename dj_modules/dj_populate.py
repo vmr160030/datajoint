@@ -72,6 +72,8 @@ def load_chunks_and_files():
     print(f'Added {len(ls_file_data)} new data files')
 
 def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False):
+    # Delete all existing typing data
+    djm.CellTyping().delete(safemode=False)
     ls_noise_protocols = ['manookinlab.protocols.FastNoise', 'manookinlab.protocols.SpatialNoise']
     ls_protocol_query = [f'protocol_id = "{str_protocol}"' for str_protocol in ls_noise_protocols]
     ls_RGC_labels = ['OnP', 'OffP', 'OnM', 'OffM', 'SBC']
@@ -150,6 +152,10 @@ def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False):
                             ls_ct_data.append(d_ct_insert.copy())
                         djm.Cell.insert(ls_cellid_data, skip_duplicates=True)
                         djm.CellType.insert(ls_ct_data, skip_duplicates=True)
+    # Print current number of entries in CellTyping
+    print(f'There are {len(djm.CellTyping())} entries in CellTyping table')
+    if len(djm.CellTyping()) == 0:
+        print('No entries! Check that you are connected to NAS and your paths are correct.')
 
 def load_typing_notes(str_csv, verbose=False, b_pop_multiple=False):
     df = pd.read_csv(str_csv)

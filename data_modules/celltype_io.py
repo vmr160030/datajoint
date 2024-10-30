@@ -8,7 +8,6 @@ import numpy as np
 
 
 class CellTypes(object):
-
     def __init__(self, str_txt, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM']):
         self.str_txt = str_txt
         try:
