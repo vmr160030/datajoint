@@ -337,7 +337,10 @@ class QC(object):
             self.data.update_ids(good_ids=ids_both)
 
         # Dict for threshold sets
-        self.d_thresh = {'set1': {'df_keep': self.df_qc.copy()}}
+        df_keep = self.df_qc.copy()
+        for str_col in self.df_qc.columns[1:]:
+            df_keep[str_col] = False
+        self.d_thresh = {'set1': {'df_keep': df_keep}}
 
     def set_abs_thresh(self, str_set, str_param, n_thresh, b_keep_below=True):
         # Set threshold for str_param in str_set
