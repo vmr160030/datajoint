@@ -8,6 +8,7 @@ import numpy as np
 
 
 class CellTypes(object):
+
     def __init__(self, str_txt, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM']):
         self.str_txt = str_txt
         try:
@@ -27,6 +28,7 @@ class CellTypes(object):
                 print(f'Error: 1 space delimiter resulted in {self.arr_types.shape} shape')
                 self.arr_types = np.array([])
                 self.d_types = {}
+                self.d_main_IDs = {}
                 return            
 
         # self.ls_RGC_labels = ['OffP', 'OffM', 'OnP', 'OnM']
