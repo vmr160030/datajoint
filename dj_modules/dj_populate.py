@@ -73,7 +73,9 @@ def load_chunks_and_files():
 
 def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False):
     # Delete all existing typing data
+    print(f'Deleting {len(djm.CellTyping())} entries in CellTyping table and regenerating...')
     djm.CellTyping().delete(safemode=False)
+    print('Deleted all entries in CellTyping table')
     ls_noise_protocols = ['manookinlab.protocols.FastNoise', 'manookinlab.protocols.SpatialNoise']
     ls_protocol_query = [f'protocol_id = "{str_protocol}"' for str_protocol in ls_noise_protocols]
     ls_RGC_labels = ['OnP', 'OffP', 'OnM', 'OffM', 'SBC']
@@ -131,7 +133,8 @@ def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False):
                                 d_insert[f'num_{str_key}'] = len(types.d_main_IDs[str_label])
 
                         djm.CellTyping.insert1(d_insert, skip_duplicates=True)
-                        print(f'Inserted {date_id} {chunk_id} {str_data_files} {str_typing_file}')
+                        if verbose:
+                            print(f'Inserted {date_id} {chunk_id} {str_data_files} {str_typing_file}')
                         
                         ls_cellid_data = []
                         ls_ct_data = []
