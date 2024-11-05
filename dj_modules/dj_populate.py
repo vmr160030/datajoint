@@ -71,11 +71,12 @@ def load_chunks_and_files():
     djm.DataFile.insert(ls_file_data, skip_duplicates=True)
     print(f'Added {len(ls_file_data)} new data files')
 
-def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False):
-    # Delete all existing typing data
-    print(f'Deleting {len(djm.CellTyping())} entries in CellTyping table and regenerating...')
-    djm.CellTyping().delete(safemode=False)
-    print('Deleted all entries in CellTyping table')
+def load_typing(ANALYSIS_PATH=STR_ANALYSIS_PATH, verbose=False, b_reload_typing_files=False):
+    if b_reload_typing_files:
+        # Delete all existing typing data
+        print(f'Deleting {len(djm.CellTyping())} entries in CellTyping table and regenerating...')
+        djm.CellTyping().delete(safemode=False)
+        print('Deleted all entries in CellTyping table')
     ls_noise_protocols = ['manookinlab.protocols.FastNoise', 'manookinlab.protocols.SpatialNoise']
     ls_protocol_query = [f'protocol_id = "{str_protocol}"' for str_protocol in ls_noise_protocols]
     ls_RGC_labels = ['OnP', 'OffP', 'OnM', 'OffM', 'SBC']
