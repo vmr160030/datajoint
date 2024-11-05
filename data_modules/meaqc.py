@@ -64,65 +64,6 @@ def print_type_summary(df_keep: pd.DataFrame, str_param: str, ls_RGC_labels: lis
             print('Warning: Some cutoffs are 0. Pct targets may not be met.')
     display(df_print)
 
-def remove_cells_by_ids(data: so.SpikeOutputs, ids):
-    """Remove cells from SpikeOutputs object by ids
-    Args:
-        data: SpikeOutputs object
-        ids: list of cell ids to remove
-    Returns:
-        data: SpikeOutputs object with cells removed
-    """
-    # Remove bad IDs from GOOD_CELL_IDS
-    print(f'Removing {len(ids)}/{data.N_CELLS} = {len(ids)/data.N_CELLS:.2f} cells.')
-
-    idx_bad = np.where(np.isin(data.ARR_CELL_IDS, ids))[0]
-    good_ids = np.delete(data.ARR_CELL_IDS, idx_bad)
-    data.GOOD_CELL_IDS = np.intersect1d(good_ids, data.GOOD_CELL_IDS)
-    data.N_GOOD_CELLS = len(data.GOOD_CELL_IDS)
-    
-    return data
-
-def exclude_isi_violations(data: so.SpikeOutputs, str_protocol: str=None, n_bin_max=4, refractory_threshold=0.1):
-    # acf has 0.5ms bins, n_bin_max is index of bins to count spikes upto. 4 means first four bins will be included.
-    # Calculate the percentage of spikes that violate refractoriness (<2ms isi)
-    if str_protocol is not None:
-        acf = data.isi[str_protocol]['acf']
-    else:
-        acf = data.spikes['acf']
-    pct_refractory = np.sum(acf[:,:n_bin_max], axis=1) * 100
-    # May have to play with the cutoff
-    idx_bad = np.argwhere((pct_refractory > refractory_threshold))[:,0]
-    
-    # Remove bad IDs from ARR_CELL_IDs
-    data.pct_refractory = pct_refractory
-    data.bad_isi_idx = idx_bad
-    data.bad_isi_ids = data.ARR_CELL_IDS[idx_bad]
-    data.good_isi_idx = np.delete(np.arange(data.N_CELLS), idx_bad)
-
-    data = remove_cells_by_ids(data, data.bad_isi_ids)
-    print(f'{len(data.bad_isi_ids)} cells removed due to ISI violations.')
-
-def filter_low_nspikes_noise(data: so.SpikeOutputs, n_percentile=10):
-    # Filter cells with low number of spikes in noise protocol for each cell type
-    print('Filtering low noise nspikes cells...')
-    for idx_t, str_type in enumerate(data.ls_RGC_labels):
-        type_IDs = data.types.d_main_IDs[str_type]
-        
-        arr_nSpikes = np.array([len(data.vcd.main_datatable[n_ID]['SpikeTimes']) for n_ID in type_IDs])
-        n_cutoff = np.percentile(arr_nSpikes, n_percentile)
-        arr_keep = arr_nSpikes > n_cutoff
-
-        # Update type IDs
-        data.types.d_main_IDs[str_type] = type_IDs[arr_keep]
-        print(f'{arr_keep.sum()} / {len(type_IDs)} {str_type} cells are kept.')
-
-        # Update good cell IDs by deleting type_IDs not kept
-        data.GOOD_CELL_IDS = np.delete(data.GOOD_CELL_IDS, 
-                                        np.argwhere(np.isin(data.GOOD_CELL_IDS, type_IDs[~arr_keep])))
-    
-    data.N_GOOD_CELLS = len(data.GOOD_CELL_IDS)
-    print('Done.')
-
 def filter_low_crf_f1(data: so.SpikeOutputs, crf_datafile, n_percentile=10, contrast=0.05):
     # Filter cells with low F1 amplitude for specified contrast
     print('Filtering low CRF F1 cells...')
@@ -180,6 +121,7 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_plot=True,
     
     # While loop through copy. If distance < thresh, remove from copy.
     ls_already_removed = []
+    removed_ids = np.array([])
     while np.any(dedup_dist < thresh):
         # Find min dist
         min_idx = np.unravel_index(np.argmin(dedup_dist), dedup_dist.shape)
@@ -205,6 +147,10 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_plot=True,
         if b_verbose:
             print(f'Removed {new_removed}')
 
+    # If removed_ids is empty, print warning
+    if len(removed_ids) == 0:
+        print(f'Warning: No cells removed for {str_type} at threshold {thresh}.')
+    
     # Save deduped IDs
     dedup_id = np.array([type_IDs[i] for i in dedup_cidx])
     data.types.d_main_IDs[str_type+'_dd'] = dedup_id
@@ -215,7 +161,7 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_plot=True,
         f, axs = plt.subplots(ncols=2, figsize=(10,5))
         sp.plot_type_rfs(data, [str_type, str_type+'_dd'], axs=axs,
         b_zoom=True, sd_mult=sd_mult)
-        # del self.types.d_main_IDs[str_type+'_dd']
+        data.types.d_main_IDs.pop(str_type+'_dd')
 
     # Update data
     # if b_update:
@@ -223,7 +169,7 @@ def remove_dups(data: so.SpikeOutputs, thresh, str_type, b_plot=True,
         # data.types.d_main_IDs[str_type] = dedup_id
 
     
-    return dedup_dist, dedup_id
+    return removed_ids, dedup_id
 
 def find_dup_thresh(data: so.SpikeOutputs, str_type: str, arr_thresh=np.arange(20,100,5)):
     # For each threshold, plot number of cells remaining
@@ -233,6 +179,14 @@ def find_dup_thresh(data: so.SpikeOutputs, str_type: str, arr_thresh=np.arange(2
         ls_n_cells.append(len(dedup_id))
     f, ax = plt.subplots()
     ax.plot(arr_thresh, ls_n_cells)
+    ax.set_xlabel('Threshold')
+    ax.set_ylabel('Number of cells remaining')
+    # Get current yticks
+    yticks = ax.get_yticks()
+    # Set to only the integer values
+    yticks = np.unique(yticks.astype(int))
+    ax.set_yticks(yticks)
+
 
 
 class QC(object):

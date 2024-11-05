@@ -139,7 +139,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
     ncols = len(ls_RGC_keys)
     if axs is None:
         f, axs = plt.subplots(ncols=ncols, figsize=(ncols*3, 3), sharey=True, sharex=True)
-        f.text(0.1, 0.98, data.str_experiment + ' ' + data.str_chunk, fontsize=12)
+        f.text(0.1, 0.98, data.str_experiment, fontsize=12)
 
     # if ncols=1, axs is not an iterable, make it an array
     if ncols==1:
@@ -185,7 +185,7 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
     
     if axs is None:
         f, axs = plt.subplots(ncols=len(ls_RGC_keys), figsize=(len(ls_RGC_keys)*3, 3), sharey=True, sharex=True)
-        f.text(0.1, 0.98, data.str_experiment + ' ' + data.str_chunk, fontsize=12)
+        f.text(0.1, 0.98, data.str_experiment, fontsize=12)
 
     # if ncols=1, axs is not an array, make it an array
     if not isinstance(axs, np.ndarray):

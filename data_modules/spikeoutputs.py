@@ -21,14 +21,31 @@ def dict_list_to_array(d):
     return d_array
 
 class SpikeOutputs(object):
-    def __init__(self, str_experiment, str_datafile=None, str_protocol=None, str_algo=None,
+    def __init__(self, str_experiment, str_datafile=None, str_algo=None,
                  paramsfile=None, dataset_name=None, paramsmatfile=None,
                  str_classification=None, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
-                 str_chunk=None, ls_filenames=None, str_noise_protocol='manookinlab.protocols.SpatialNoise',
+                 ls_filenames=None, str_noise_protocol='manookinlab.protocols.SpatialNoise',
                  ls_noise_filenames=None):
+        """
+        How input params are used:
+        
+        paramsfile         : Path to .params file. Used by load_sta_from_params
+            eg-'/path/to/kilosort2.params'
+        dataset_name       : Name of the vision data files, typically same as algo. Used by load_sta_from_params
+            eg-'kilosort2'
+        paramsmatfile      : Path to params.mat file. Optional use by load_sta_from_params for spatial maps and convex hulls
+            eg-'/path/to/kilosort2_params.mat'
+        str_classification : Path to classification .txt file. Used to init ctio.CellTypes
+            eg-'/path/to/kilosort2.classification.txt'
+        ls_RGC_labels      : List of RGC labels. Used by ctio.CellTypes to parse the .txt file
+            eg-['OffP', 'OffM', 'OnP', 'OnM', 'SBC']
+        ls_filenames       : List of data file names used by load_psth and load_isi. 
+            eg-['data001', 'data002']
+        ls_noise_filenames : List of noise file names used by load_isi. 
+            eg-['noise001', 'noise002']
+        """
         self.str_experiment = str_experiment
         self.str_datafile = str_datafile
-        self.str_protocol = str_protocol
         self.str_algo = str_algo
         self.str_noise_protocol = str_noise_protocol # TODO: better method for setting this from metadata
 
@@ -37,7 +54,6 @@ class SpikeOutputs(object):
             dataset_name = str_algo
         self.dataset_name = dataset_name
         self.paramsmatfile = paramsmatfile
-        self.str_chunk = str_chunk
         self.ls_filenames = ls_filenames
         self.ls_noise_filenames = ls_noise_filenames
         self.ls_RGC_labels = ls_RGC_labels
@@ -242,21 +258,6 @@ class SpikeOutputs(object):
         else:
             print(f'ISI for {str_protocol} already loaded.')
 
-    def set_common_ids(self):
-        # Set common cell IDs between noise and protocol
-        self.sta_cluster_ids = list(self.d_sta.keys())
-        self.ARR_COMMON_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, self.spikes['cluster_id'])
-        self.ARR_COMMON_CELL_IDS = np.intersect1d(self.ARR_COMMON_CELL_IDS, self.sta_cluster_ids)
-        self.N_COMMON_CELLS = self.ARR_COMMON_CELL_IDS.shape[0]
-        print('Number of common cells: ' + str(self.N_COMMON_CELLS))
-
-        # For each of main types, set to common cells
-        self.types.d_main_IDs_original = self.types.d_main_IDs.copy()
-        for str_type in self.types.d_main_IDs.keys():
-            arr_common_ids = np.intersect1d(self.types.d_main_IDs[str_type], self.ARR_COMMON_CELL_IDS)
-            print(f'Out of {len(self.types.d_main_IDs[str_type])} {str_type} cells, {len(arr_common_ids)} are common.')
-            self.types.d_main_IDs[str_type] = arr_common_ids
-
     def print_stim_summary(self):
         # Print stim summary from stim dictionary
         n_bin_dt = self.stim['n_bin_dt']
@@ -323,3 +324,8 @@ class SpikeOutputs(object):
             new_ids = np.intersect1d(type_ids, good_ids)
             self.types.d_main_IDs[str_type] = new_ids
             print(f'{str_type}: {len(new_ids)}/{len(type_ids)}')
+    
+    def remove_ids(self, bad_ids: np.ndarray):
+        # Remove bad_ids from GOOD_CELL_IDS
+        good_ids = np.setdiff1d(self.GOOD_CELL_IDS, bad_ids)
+        self.update_ids(good_ids)
