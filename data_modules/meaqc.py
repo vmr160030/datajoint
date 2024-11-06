@@ -220,7 +220,11 @@ class QC(object):
         for n_ID in self.df_qc.index:
             # Check if n_ID in vcd
             if n_ID in data.vcd.main_datatable.keys():
-                ls_noisespikes.append(len(data.vcd.main_datatable[n_ID]['SpikeTimes']))
+                if 'SpikeTimes' in data.vcd.main_datatable[n_ID].keys():
+                    ls_noisespikes.append(len(data.vcd.main_datatable[n_ID]['SpikeTimes']))
+                else:
+                    ls_noisespikes.append(0)
+                    print(f'No SpikeTimes for {n_ID}.')
             else:
                 ls_noisespikes.append(0)
             # Check if n_ID in data.types.d_types
