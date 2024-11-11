@@ -12,6 +12,7 @@ import pickle
 import celltype_io as ctio
 import symphony_data as sd
 import matplotlib.pyplot as plt
+import config as cfg
 
 def dict_list_to_array(d):
     # Convert dictionary of lists to dictionary of arrays
@@ -68,6 +69,7 @@ class SpikeOutputs(object):
         if str_classification is not None:
             self.str_classification = str_classification
             self.types = ctio.CellTypes(str_classification, ls_RGC_labels=ls_RGC_labels)
+            self.ls_RGC_labels = list(self.types.d_main_IDs.keys())
 
         # Load datafile if provided
         if str_datafile is not None:
@@ -193,7 +195,7 @@ class SpikeOutputs(object):
 
     def load_psth(self, str_protocol, ls_param_names, 
                   bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601),
-                  b_load_isi=True):
+                  b_load_isi=True, b_load_ei=False):
         c_data = sd.Dataset(self.str_experiment)
         self.param_names = ls_param_names
         self.str_protocol = str_protocol
@@ -242,6 +244,15 @@ class SpikeOutputs(object):
         if b_load_isi:
             # Load protocol ISI
             self.load_isi(str_protocol, bin_edges=isi_bin_edges, c_data=c_data, file_names=self.ls_filenames)
+
+        if b_load_ei:
+            # Load EI vcd
+            str_sort_dir, _, _ = cfg.get_data_paths()
+            # For now only first data file. TODO Work in avg Ei across all data files
+            str_p_vcd = os.path.join(str_sort_dir, self.str_experiment,self.ls_filenames[0], self.str_algo)
+            self.p_vcd = vl.load_vision_data(analysis_path=str_p_vcd, 
+                                             dataset_name=self.ls_filenames[0], 
+                                             include_ei=True)
 
     def load_isi(self, str_protocol, bin_edges=np.linspace(0,300,601), c_data=None, file_names=None):
         # Get ISI
