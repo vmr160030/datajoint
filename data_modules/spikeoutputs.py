@@ -247,7 +247,8 @@ class SpikeOutputs(object):
 
         if b_load_ei:
             # Load EI vcd
-            str_sort_dir, _, _ = cfg.get_data_paths()
+            t_paths = cfg.get_data_paths()
+            str_sort_dir = t_paths[0]
             # For now only first data file. TODO Work in avg Ei across all data files
             str_p_vcd = os.path.join(str_sort_dir, self.str_experiment,self.ls_filenames[0], self.str_algo)
             self.p_vcd = vl.load_vision_data(analysis_path=str_p_vcd, 

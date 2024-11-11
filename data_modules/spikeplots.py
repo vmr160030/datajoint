@@ -128,7 +128,7 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
 def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
                     ls_colors = sns.color_palette(), axs=None, ls_facecolors=None, alpha=0.6,
                     b_ticks_off=True, ls_RGC_labels=None, d_IDs=None,
-                    b_zoom=False, sd_mult=1.3):
+                    b_zoom=False, sd_mult=1.3, scaling=None):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
@@ -160,7 +160,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
         
         ax = axs[i]
         _, ells = plot_rfs(data, ls_cells, ell_color=ls_colors[i], facecolor=ls_facecolors[i], 
-                           ax=ax, alpha=alpha, b_zoom=b_zoom, sd_mult=sd_mult)
+                           ax=ax, alpha=alpha, b_zoom=b_zoom, sd_mult=sd_mult, SCALING=scaling)
         ax.set_title(ls_label+f' (n={len(ls_cells)}) RFs')
 
     if b_ticks_off:
