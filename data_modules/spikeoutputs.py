@@ -22,7 +22,7 @@ def dict_list_to_array(d):
     return d_array
 
 class SpikeOutputs(object):
-    def __init__(self, str_experiment, str_datafile=None, str_algo=None,
+    def __init__(self, str_experiment, str_protocol=None, str_datafile=None, str_algo=None,
                  paramsfile=None, dataset_name=None, paramsmatfile=None,
                  str_classification=None, ls_RGC_labels=['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
                  ls_filenames=None, str_noise_protocol='manookinlab.protocols.SpatialNoise',
@@ -46,6 +46,7 @@ class SpikeOutputs(object):
             eg-['noise001', 'noise002']
         """
         self.str_experiment = str_experiment
+        self.str_protocol = str_protocol
         self.str_datafile = str_datafile
         self.str_algo = str_algo
         self.str_noise_protocol = str_noise_protocol # TODO: better method for setting this from metadata
@@ -309,8 +310,8 @@ class SpikeOutputs(object):
         self.isi = d_load['isi']
         self.ARR_CELL_IDS = d_load['ARR_CELL_IDS']
         self.N_CELLS = len(self.ARR_CELL_IDS)
-        self.str_protocol = d_load['str_protocol']
-        self.param_names = d_load['param_names']
+        # self.str_protocol = d_load['str_protocol']
+        # self.param_names = d_load['param_names']
         self.update_ids(d_load['GOOD_CELL_IDS'])        
 
         # Check if d_sta is present
