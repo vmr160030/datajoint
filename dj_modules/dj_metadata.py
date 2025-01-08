@@ -473,8 +473,9 @@ def celltyping_from_meta(df_meta, verbose=False):
         df_meta (pd.DataFrame): df_meta output from chunk_id_protocol method
     """
     # get all unique chunks for each date_id
-    arr_dates = df_meta.index.get_level_values('date_id').unique().values
-    d_chunks = {date_id: df_meta.loc[date_id].index.get_level_values('chunk_id').unique() 
+    df_meta = df_meta.reset_index()
+    arr_dates = df_meta['date_id'].unique()
+    d_chunks = {date_id: df_meta[df_meta['date_id']==date_id]['chunk_id'].unique() 
                 for date_id in arr_dates}
     
     # Create dataframe of cell typing for those chunks

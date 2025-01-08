@@ -86,8 +86,13 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
 
     if SCALING is None:
         SCALING = spikeout.NOISE_GRID_SIZE
-        ax.set_xlim(0, 5000)
-        ax.set_ylim(0, 5000)
+        n_pad = 5
+        ax.set_xlim((0-n_pad)*SCALING, (spikeout.N_WIDTH+n_pad)*SCALING)
+        ax.set_ylim((0-n_pad)*SCALING, (spikeout.N_HEIGHT+n_pad)*SCALING)
+        ax.axhline(0, c='k', linewidth=1)
+        ax.axvline(0, c='k', linewidth=1)
+        ax.axhline(spikeout.N_HEIGHT*SCALING, c='k', linewidth=1)
+        ax.axvline(spikeout.N_WIDTH*SCALING, c='k', linewidth=1)
 
     if not ell_color:
         ell_color = np.random.rand(3)
@@ -139,7 +144,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
     ncols = len(ls_RGC_keys)
     if axs is None:
         f, axs = plt.subplots(ncols=ncols, figsize=(ncols*3, 3), sharey=True, sharex=True)
-        f.text(0.1, 0.98, data.str_experiment, fontsize=12)
+        # f.text(0.1, 0.98, data.str_experiment, fontsize=12)
 
     # if ncols=1, axs is not an iterable, make it an array
     if ncols==1:
