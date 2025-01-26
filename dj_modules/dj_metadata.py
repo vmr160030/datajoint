@@ -481,18 +481,47 @@ def celltyping_from_meta(df_meta, verbose=False):
     # Create dataframe of cell typing for those chunks
     ls_df_ct = []
     arr_dates = list(d_chunks.keys())
+    n_no_ct_chunk = 0
+    n_no_ct_date = 0
+    b_no_ct_date = True
     for date_id in arr_dates:
         arr_chunks = d_chunks[date_id]
         for chunk_id in arr_chunks:
             df_ct = (CellTyping() & f"date_id='{date_id}'" & f"chunk_id='{chunk_id}'").fetch(format='frame')
             if df_ct.shape[0] > 0:
                 ls_df_ct.append(df_ct)
-            elif verbose:
-                print(f"no cell typing for {date_id} {chunk_id}")
+                b_no_ct_date = False
+            else:
+                n_no_ct_chunk += 1
+                if verbose:
+                    print(f"no cell typing for {date_id} {chunk_id}")
+        
+        if b_no_ct_date:
+            n_no_ct_date += 1
+        b_no_ct_date = True
 
+    print(f'No cell typing for {n_no_ct_chunk} chunks')
+    print(f'No cell typing for {n_no_ct_date} dates')
     if len(ls_df_ct) == 0:
         print('No cell typing found')
         return None
     df_ct = pd.concat(ls_df_ct)
+    df_ct = df_ct.reset_index()
+    df_ct['quality'] = ''
+
+    # Add quality label from TypingNotes table
+    for idx in df_ct.index:
+        typing_file = df_ct.loc[idx, 'typing_file']
+        try:
+            str_quality = (TypingNotes() & f"typing_file='{typing_file}'").fetch('quality')[0]
+        except Exception as e:
+            str_quality = 'Empty'
+            if verbose:
+                print(f"No quality found for {df_ct.loc[idx, 'date_id']} {df_ct.loc[idx, 'chunk_id']}")
+        df_ct.loc[idx, 'quality'] = str_quality
+
+    # Attach metadata about missing cell typing
+    df_ct.n_no_ct_chunk = n_no_ct_chunk
+    df_ct.n_no_ct_date = n_no_ct_date
 
     return df_ct
