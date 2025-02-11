@@ -50,6 +50,8 @@ class SpikeOutputs(object):
         self.str_datafile = str_datafile
         self.str_algo = str_algo
         self.str_noise_protocol = str_noise_protocol # TODO: better method for setting this from metadata
+        if int(str_experiment[:8]) < 20230926:
+            self.str_noise_protocol = 'manookinlab.protocols.FastNoise'
 
         self.paramsfile = paramsfile
         if dataset_name is None:

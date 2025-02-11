@@ -23,7 +23,11 @@ def get_acf_from_vcd(vcd: vl.VisionCellDataTable, cell_ids: np.ndarray,
     # Modified from symphony_data.py for convenience
     isi = dict()
     for cell in cell_ids:
-        spike_times = vcd.get_spike_times_for_cell(cell) / 20000 * 1000 # ms
+        try:
+            spike_times = vcd.get_spike_times_for_cell(cell) / 20000 * 1000 # ms
+        except Exception as e:
+            print(f'Error for cell {cell}: {e}')
+            spike_times = []
         
         # Compute the interspike interval
         if len(spike_times) > 1:
@@ -190,7 +194,9 @@ def find_dup_thresh(data: so.SpikeOutputs, str_type: str, arr_thresh=np.arange(2
 
 
 class QC(object):
-    def __init__(self, data: so.SpikeOutputs, b_noise_only: bool=False):
+    def __init__(self, data: so.SpikeOutputs, b_noise_only: bool=False,
+                 n_refractory_period: float= 1.5 # ms
+                 ):
         self.data = data
         self.ls_RGC_labels = data.ls_RGC_labels
         self.N_CELLS = data.N_CELLS
@@ -238,7 +244,6 @@ class QC(object):
         self.df_qc['noise_spikes'] = self.df_qc['noise_spikes'].astype(int)
         
         # populate noise ISI violations
-        n_refractory_period = 1.5 # ms
         self.n_refractory_period = n_refractory_period
         isi_bin_edges = data.isi[data.str_noise_protocol]['isi_bin_edges']
         isi_bins = np.array([(isi_bin_edges[i], isi_bin_edges[i+1]) for i in range(len(isi_bin_edges)-1)])

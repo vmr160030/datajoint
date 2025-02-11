@@ -146,8 +146,8 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
     
     ncols = len(ls_RGC_keys)
     if axs is None:
-        f, axs = plt.subplots(ncols=ncols, figsize=(ncols*3, 3), sharey=True, sharex=True)
-        f.patch.set_facecolor('none')
+        f, axs = plt.subplots(ncols=ncols, figsize=(ncols*5, 5), sharey=True, sharex=True)
+        # f.patch.set_facecolor('none')
         # f.text(0.1, 0.98, data.str_experiment, fontsize=12)
 
     # if ncols=1, axs is not an iterable, make it an array
@@ -208,7 +208,7 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
 
     # Plot time courses
     if axs is None:
-        f, axs = plt.subplots(ncols=len(ls_RGC_keys), figsize=(len(ls_RGC_keys)*3, 3), sharey=True, sharex=True)
+        f, axs = plt.subplots(ncols=len(ls_RGC_keys), figsize=(len(ls_RGC_keys)*5, 5), sharey=True, sharex=True)
         # f.text(0.1, 0.98, data.str_experiment, fontsize=12)
         f.patch.set_facecolor('none')
 
@@ -280,8 +280,9 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
     
     return axs
 
-def plot_type_rfs_and_tcs(data: so.SpikeOutputs, ls_RGC_keys=None):#['OffP', 'OffM', 'OnP', 'OnM', 'SBC']):
-    rf_axs = plot_type_rfs(data, ls_RGC_keys)
-    tc_axs = plot_type_tcs(data, ls_RGC_keys)
+def plot_type_rfs_and_tcs(data: so.SpikeOutputs, ls_RGC_keys=None, d_rf_kwargs={}, d_tc_kwargs={}):
+    #['OffP', 'OffM', 'OnP', 'OnM', 'SBC']):
+    rf_axs = plot_type_rfs(data, ls_RGC_keys, **d_rf_kwargs)
+    tc_axs = plot_type_tcs(data, ls_RGC_keys, **d_tc_kwargs)
 
     return [rf_axs, tc_axs]
