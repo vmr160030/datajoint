@@ -101,7 +101,9 @@ class SpikeOutputs(object):
             self.N_CELLS = len(self.ARR_CELL_IDS)
     
     def load_sta_from_params(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
-                 isi_bin_edges=None, load_ei=False, load_neurons=True, load_sta=False):
+                             isi_bin_edges=None, load_ei=False, load_neurons=True, load_sta=False,
+                             b_flip_y=False):
+        # b_flip_y is for flipping y location of RFs, to get in matrix space (0,0) at top left.
         if not paramsfile:
             paramsfile = self.paramsfile
             dataset_name = self.dataset_name
@@ -136,6 +138,11 @@ class SpikeOutputs(object):
         sta_cell_ids = list(self.d_sta.keys())
         print(f'Loaded STA for {len(sta_cell_ids)} cells.')
 
+        if b_flip_y:
+            for n_ID in self.d_sta.keys():
+                self.d_sta[n_ID]['y0'] = self.N_HEIGHT-self.d_sta[n_ID]['y0']
+            print('Flipped y0 values, so RFs are in sta matrix space with (0,0) in top left.')
+
         # Load _params.mat. 
         if paramsmatfile:
             print(f'Loading STA params from {paramsmatfile}...')
@@ -153,6 +160,11 @@ class SpikeOutputs(object):
                 self.d_sta_convex_hull[n_ID] = self.d_params['hull_vertices'][idx_ID, :,:]
 
             print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
+
+            if b_flip_y:
+                for n_ID in self.d_sta_spatial.keys():
+                    self.d_sta_spatial[n_ID] = self.d_sta_spatial[n_ID][::-1, :]
+                    self.d_sta_convex_hull[n_ID] = self.d_sta_convex_hull[n_ID][::-1, :]
                 
         ids = np.array(sta_cell_ids).astype(int)
         self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
@@ -195,6 +207,21 @@ class SpikeOutputs(object):
             print(f'Loading STA ISI...')
             self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
         
+    def load_protocol_vcd(self, chunk_dir, dataset_name):
+        """Load protocol VCD. 
+        Typically for cases when protocol chunk is different from noise chunk.
+        So self.vcd has noise data and self.p_vcd has protocol data.
+        Can pass to eicorr.MapAcrossChunk to map EIs across noise and protocol chunks.
+        """
+        
+        # Check that globals file exists
+        str_globals = os.path.join(chunk_dir, f'{dataset_name}.globals')
+        if not os.path.exists(str_globals):
+            raise ValueError(f'{str_globals} does not exist.')
+        
+        print(f'Loading protocol VCD from {chunk_dir}...')
+        self.p_vcd = vl.load_vision_data(analysis_path=chunk_dir, dataset_name=dataset_name, 
+                                         include_ei=True, include_neurons=True)
 
     def load_psth(self, str_protocol, ls_param_names, 
                   bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601),
