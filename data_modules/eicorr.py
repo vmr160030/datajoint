@@ -101,12 +101,19 @@ class MapAcrossChunk(object):
         # self.ids_dest = self.ids_dest[:10]
 
         # keep only IDs that have EI key in vcd.main_datatable
+        ls_remove = []
         for id in self.ids_src:
             if 'EI' not in self.vcd_src.main_datatable[id].keys():
-                self.ids_src.remove(id)
+                ls_remove.append(id)
+        for id in ls_remove:
+            self.ids_src.remove(id)
+        
+        ls_remove = []
         for id in self.ids_dest:
             if 'EI' not in self.vcd_dest.main_datatable[id].keys():
-                self.ids_dest.remove(id)
+                ls_remove.append(id)
+        for id in ls_remove:
+            self.ids_dest.remove(id)
 
         self.ids_src = np.array(self.ids_src)
         self.ids_dest = np.array(self.ids_dest)
