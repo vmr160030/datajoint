@@ -11,6 +11,47 @@ import spikeplots as sp
 
 SORT_PATH, JSON_PATH, OUTPUT_PATH = cfg.get_data_paths()
 
+def sort_electrode_map(electrode_map: np.ndarray) -> np.ndarray:
+    """
+    Sort electrodes by their x, y locations.
+
+    This uses lexsort to sort electrodes by their x, y locations
+    First sort by rows, break ties by columns. 
+    As each row is jittered but within row the electrodes have exact same y location.
+
+    Parameters:
+    electrode_map (numpy.ndarray): The electrode locations of shape (512, 2).
+
+    Returns:
+    numpy.ndarray: The reshaped EI matrix of shape (16, 32, 201).
+    """
+    sorted_indices = np.lexsort((electrode_map[:, 0], electrode_map[:, 1]))
+    
+    # dbug: Make scatterplot of electrode locations
+    # plt.scatter(electrode_map[sorted_indices, 0], electrode_map[sorted_indices, 1], cmap='coolwarm')
+    # for i in range(electrode_map.shape[0]):
+    #     plt.text(electrode_map[sorted_indices[i], 0], electrode_map[sorted_indices[i], 1], str(i), fontsize=8)
+    
+    return sorted_indices
+
+def reshape_ei(ei: np.ndarray, sorted_electrodes: np.ndarray) -> np.ndarray:
+    """
+    Reshape the EI matrix from 512 x 201 to 16 x 32 x 201 based on electrode locations.
+
+    Parameters:
+    ei (numpy.ndarray): The EI matrix of shape (512, 201).
+    sorted_electrodes (numpy.ndarray): The sorted indices of the electrodes.
+
+    Returns:
+    numpy.ndarray: The reshaped EI matrix of shape (16, 32, 201).
+    """
+    sorted_ei = ei[sorted_electrodes]
+
+    # Reshape the sorted EI matrix
+    reshaped_ei = sorted_ei.reshape(16, 32, 201)
+    
+    return reshaped_ei
+
 class MapWithinNoise(object):
     def __init__(self, vcd: vl.VisionCellDataTable):
         self.vcd = vcd
@@ -40,15 +81,17 @@ class MapWithinNoise(object):
         self.ei_corr = ei_corr
 
 class MapAcrossChunk(object):
-    def __init__(self, vcd_src: vl.VisionCellDataTable, str_dest_path: str,
+    def __init__(self, vcd_src: vl.VisionCellDataTable, #str_dest_path: str,
+                 vcd_dest: vl.VisionCellDataTable,
                  str_ei_corr_p: str = None):
         self.vcd_src = vcd_src
-        self.str_dest_path = str_dest_path
+        self.vcd_dest = vcd_dest
+        # self.str_dest_path = str_dest_path
 
-        # Load dest vcd
-        self.vcd_dest = vl.load_vision_data(os.path.dirname(str_dest_path),
-                                    os.path.basename(str_dest_path)[:-3],
-                                    include_ei=True, include_neurons=True)
+        # # Load dest vcd
+        # self.vcd_dest = vl.load_vision_data(os.path.dirname(str_dest_path),
+        #                             os.path.basename(str_dest_path)[:-3],
+        #                             include_ei=True, include_neurons=True)
         
         self.ids_src = self.vcd_src.get_cell_ids()
         self.ids_dest = self.vcd_dest.get_cell_ids()
@@ -79,21 +122,29 @@ class MapAcrossChunk(object):
             self.d_ei_dest[id] = self.vcd_dest.get_ei_for_cell(id).ei
 
         # Get src and dest ei maps
-        self.ei_maps_src = compute_ei_energy(self.vcd_src, self.ids_src)
-        self.ei_maps_dest = compute_ei_energy(self.vcd_dest, self.ids_dest)
+        print('Computing EI energy maps')
+        self.sorted_electrodes = sort_electrode_map(self.vcd_src.get_electrode_map())
+        self.ei_maps_src = compute_ei_energy(self.sorted_electrodes, self.vcd_src, self.ids_src)
+        self.ei_maps_dest = compute_ei_energy(self.sorted_electrodes, self.vcd_dest, self.ids_dest)
 
         # Load EI correlation if exists
         self.str_ei_corr_p = str_ei_corr_p
         if str_ei_corr_p is not None:
             if os.path.exists(str_ei_corr_p):
+                print(f'Loading EI correlation from {str_ei_corr_p}')
                 with open(str_ei_corr_p, 'rb') as f:
                     self.ei_corr = pickle.load(f)
 
 
     
     def compute_ei_corr(self):
+        # Check if EI correlation already exists
+        if hasattr(self, 'ei_corr'):
+            print('EI correlation already exists')
+            return
         ei_corr = np.zeros((len(self.ids_src), len(self.ids_dest)))
 
+        print(f'Computing EI correlation for {ei_corr.shape[0]} source cells and {ei_corr.shape[1]} destination cells')
         for i in tqdm.trange(ei_corr.shape[0]):
             id_src = self.ids_src[i]
             ei_src = self.d_ei_src[id_src].flatten()
@@ -132,32 +183,47 @@ def plot_ei_corr_summary(ei: MapAcrossChunk, n_thresh = 0.8):
     ax.set_xlabel('Best match correlation')
     ax.set_title(f'{n_matches}/{n_total} cells above threshold')
 
-def compute_ei_energy(vcd, ids):
+def compute_grid_ei_frame(vcd, ei_frame):
+    electrode_map = vcd.get_electrode_map()
+    xrange = (np.min(electrode_map[:, 0]), np.max(electrode_map[:, 0]))
+    yrange = (np.min(electrode_map[:, 1]), np.max(electrode_map[:, 1]))
+
+    y_dim = 30 # general EI map scaling
+    x_dim = int((xrange[1] - xrange[0])/(yrange[1] - yrange[0]) * y_dim) # x dim is proportional to y dim
+
+    x_e = np.linspace(xrange[0], xrange[1], x_dim)
+    y_e = np.linspace(yrange[0], yrange[1], y_dim)
+
+    grid_x, grid_y = np.meshgrid(x_e, y_e)
+    grid_x = grid_x.T
+    grid_y = grid_y.T
+    ei_grid = griddata(electrode_map, ei_frame, (grid_x, grid_y), 
+                       method='linear', fill_value=np.median(ei_frame))
+    return ei_grid.T
+
+def compute_grid_all_ei_frames(vcd, n_ID):
+    ei = vcd.get_ei_for_cell(n_ID).ei
+    ei_grid = []
+    for i in range(ei.shape[1]):
+        ei_frame = ei[:, i]
+        grid_frame = compute_grid_ei_frame(vcd, ei_frame)
+        ei_grid.append(grid_frame)
+
+    ei_grid = np.array(ei_grid)
+    return ei_grid
+
+def compute_ei_energy(sorted_electrodes, vcd, ids):
     ei_maps = []
     for n_ID in ids:
         ei = vcd.get_ei_for_cell(n_ID).ei
-        electrode_map = vcd.get_electrode_map()
+        ei = reshape_ei(ei, sorted_electrodes)
+        
+        # peak_electrode = np.argmax(np.max(np.abs(ei), axis=1))
+        # peak_frame = np.argmin(ei[peak_electrode, :])
 
-        xrange = (np.min(electrode_map[:, 0]), np.max(electrode_map[:, 0]))
-        yrange = (np.min(electrode_map[:, 1]), np.max(electrode_map[:, 1]))
-
-        y_dim = 30 # general EI map scaling
-        x_dim = int((xrange[1] - xrange[0])/(yrange[1] - yrange[0]) * y_dim) # x dim is proportional to y dim
-
-        x_e = np.linspace(xrange[0], xrange[1], x_dim)
-        y_e = np.linspace(yrange[0], yrange[1], y_dim)
-
-        grid_x, grid_y = np.meshgrid(x_e, y_e)
-        grid_x = grid_x.T
-        grid_y = grid_y.T
-
-        peak_electrode = np.argmax(np.max(np.abs(ei), axis=1))
-        peak_frame = np.argmin(ei[peak_electrode, :])
-
-        ei_energy = np.log10(np.mean(np.power(ei, 2), axis=1) + .000000001)
-        ei_energy_grid = griddata(electrode_map, ei_energy, (grid_x, grid_y), method='linear', fill_value=np.median(ei_energy))
-
-        ei_maps.append(ei_energy_grid.T)
+        ei_energy = np.log10(np.mean(np.power(ei, 2), axis=2) + .000000001)
+        # ei_energy_grid = compute_grid_ei_frame(vcd, ei_energy)
+        ei_maps.append(ei_energy)
     return ei_maps
 
 def print_ei_corr_summary(ei: MapAcrossChunk, data: so.SpikeOutputs, 
@@ -185,43 +251,6 @@ def format_number(n):
         suffix_index += 1
     return f'{n:.1f}{suffixes[suffix_index]}'
 
-
-def plot_ei_energy(ei_maps, ids, vcd, axs=None):
-    if axs is None:
-        ncols = len(ei_maps)
-        f, axs = plt.subplots(ncols=ncols, figsize=(4*ncols, 4))
-    
-    ls_n_spikes = []
-    ls_peak_idx = []
-    for idx, ei_map in enumerate(ei_maps):
-        n_ID = ids[idx]
-        ax = axs[idx]
-        cm=ax.imshow(ei_map, cmap='hot')
-
-        # Get index of peak and plot lines
-        peak_idx = np.unravel_index(np.argmax(ei_map), ei_map.shape)
-        ax.plot(peak_idx[1], peak_idx[0], 'bo')
-        ax.axhline(peak_idx[0], color='b')
-        ax.axvline(peak_idx[1], color='b')
-        ls_peak_idx.append(peak_idx)
-
-        n_spikes = len(vcd.get_spike_times_for_cell(n_ID))
-        ls_n_spikes.append(n_spikes)
-
-    # Compute EI correlation to ei map with most spikes
-    idx_max_spikes = np.argmax(ls_n_spikes)
-    ei_base = ei_maps[idx_max_spikes]
-    for idx, ei_map in enumerate(ei_maps):
-        n_ID = ids[idx]
-        ax=axs[idx]
-        peak_idx = ls_peak_idx[idx]
-        n_spikes = ls_n_spikes[idx]
-        n_spikes = format_number(n_spikes)
-        str_title = f'ID {n_ID}\nPeak: {peak_idx}\n{n_spikes} sps\n'
-        if idx != idx_max_spikes:
-            r = np.corrcoef(ei_base.flatten(), ei_map.flatten())[0, 1]
-            str_title += f'r: {r:.2f}'
-        ax.set_title(str_title)
         
 def get_match_IDs(ei: MapAcrossChunk, data: so.SpikeOutputs, ls_types: list,
                   n_thresh: float=0.8):
@@ -240,57 +269,132 @@ def get_match_IDs(ei: MapAcrossChunk, data: so.SpikeOutputs, ls_types: list,
                 d_match_IDs[n_ID] = n_ID_dest
                 arr_matches.append([n_ID_dest, str_type])
                 n_matches += 1
-        print(f'{str_type}: {n_matches}/{len(type_ids)} matches found')
+        print(f'{str_type}: {n_matches}/{len(type_ids)} 1:1 matches found')
         
     return d_match_IDs, arr_matches
+
+def plot_ei_map(ei_map, n_ID, vcd, axs=None, label=None,
+                n_interval=2, n_markers=5):
+    if axs is None:
+        f, axs = plt.subplots(nrows=n_markers+1, figsize=(5, 10),
+                              gridspec_kw={'height_ratios': [1]+[1/n_markers]*n_markers})
+
+    sample_rate = 20000.0 # Hz
+    sts = vcd.get_spike_times_for_cell(n_ID)
+    num_sps = len(sts)
+    max_st = sts.max()/sample_rate
+    avg_rate = num_sps/max_st
+
+    ax0 = axs[0]
+    ax0.imshow(ei_map, cmap='hot')
+    # Get index of peak
+    peak_idx = np.unravel_index(np.argmax(ei_map), ei_map.shape)
+    ax0.plot(peak_idx[1], peak_idx[0], 'o', color='blue')
+    ax0.axhline(peak_idx[0], color='blue')
+    ax0.axvline(peak_idx[1], color='blue')
+
+    # Interpolate every EI timeframe
+    # ei_grid = compute_grid_all_ei_frames(vcd, n_ID)
+
+    # Reshape EI timeseries
+    ei = vcd.get_ei_for_cell(n_ID).ei
+    sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
+    ei = reshape_ei(ei, sorted_electrodes)
+
+    ## Label top n_markers pixels spaced by n_interval in the heatmap
+    # Sorted index of pixels
+    ei_map_sidx = np.argsort(ei_map.flatten())[::-1]
+    top_idx = ei_map_sidx[::n_interval][:n_markers]
+
+    # Sort top_idx by argmin of EI time series
+    amin_ei_ts = np.zeros(n_markers)
+    for i in range(n_markers):
+        y, x = np.unravel_index(top_idx[i], ei_map.shape)
+        # ei_ts = ei_grid[:, y, x]
+        ei_ts = ei[y, x, :]
+        amin_ei_ts[i] = np.argmin(ei_ts)
+    top_idx = top_idx[np.argsort(amin_ei_ts)]
+
+    for i in range(n_markers):
+        y, x = np.unravel_index(top_idx[i], ei_map.shape)
+        ax0.plot(x, y, 'o', color='C2', ms=5)
+        ax0.text(x, y, str(i), color='k')
+
+        ax = axs[i+1]
+        # ei_ts = ei_grid[:, y, x]
+        ei_ts = ei[y, x, :]
+        ax.plot(ei_ts, 'C2')
+        ax.axvline(np.argmin(ei_ts), color='k')
+        ax.set_xticks([])
+        ax.set_ylabel(str(i), rotation=0)
+    
+    # Set xticks for last ax
+    ax.set_xticks(np.arange(0, len(ei_ts), 50))
+    ax.set_xlabel('Timeframe')
+
+    str_title = ''
+    if label is not None:
+        str_title += f'{label} '
+    str_title += f'ID {n_ID}\nPeak: {peak_idx}\n{num_sps} sps ({avg_rate:.1f} Hz)\n'
+    ax0.set_title(str_title)
+    return ax0
 
 def plot_ei_analysis(eic: MapAcrossChunk, data: so.SpikeOutputs, 
                      idx_t_id, str_type, 
                      n_ei_maps, p_ei_maps, n_thresh = 0.8,
-                     str_save=None):
+                     str_savedir=None):
     n_id = data.types.d_main_IDs[str_type][idx_t_id]
     n_id = int(n_id)
 
     noise_ids = np.array(eic.vcd_src.get_cell_ids())
     idx_n_id = np.where(noise_ids == n_id)[0][0]
-
     n_ei = n_ei_maps[idx_n_id]
-    n_spikes = len(eic.vcd_src.get_spike_times_for_cell(n_id))
-
+    
+    # Find matches above threshold
     idx_matches = np.where(eic.ei_corr[idx_n_id, :] > n_thresh)[0]
-    if len(idx_matches) == 0:
-        # Find the next highest correlation
+    # Define category of match. 0 matches, 1 match, multiple matches, no matches.
+    n_matches = len(idx_matches)
+    if n_matches == 0:
+        CATEGORY = '1_no_match'
+    elif n_matches > 1:
+        CATEGORY = '2_mult_matches'
+    elif n_matches == 1:
+        CATEGORY = '3_single_match'
+
+    # If no matches above threshold, get the highest correlation
+    if n_matches == 0:
         idx_matches = [np.argsort(eic.ei_corr[idx_n_id, :])[-1]]
+    
     prot_ids = np.array(eic.vcd_dest.get_cell_ids())
-    matched_ids = prot_ids[idx_matches]
     ls_p_eis = [p_ei_maps[i] for i in idx_matches]
 
     ncols = len(ls_p_eis)+1
-    f, axs = plt.subplots(ncols=ncols, nrows=2, figsize=(ncols*5, 8))
-    ax = axs[0,0]
-    cm = ax.imshow(n_ei, cmap='hot')
-    # Get index of peak
-    peak_idx = np.unravel_index(np.argmax(n_ei), n_ei.shape)
-    ax.plot(peak_idx[1], peak_idx[0], 'o', color='blue')
-    ax.axhline(peak_idx[0], color='blue')
-    ax.axvline(peak_idx[1], color='blue')
-    ax.set_title(f'Noise ID {n_id}\nPeak: {peak_idx}\n{n_spikes} sps\n')
+    n_ei_markers = 5
+    f, axs = plt.subplots(ncols=ncols, nrows=2+n_ei_markers, figsize=(ncols*5, 12),
+                          gridspec_kw={'height_ratios': [1] + [1/n_ei_markers]*n_ei_markers + [1]},
+                          layout='constrained')
 
+    # Plot noise and protocol EI maps
+    ax = axs[:6,0]
+    plot_ei_map(n_ei, n_id, eic.vcd_src, axs=ax, label='Noise', n_interval=2, n_markers=n_ei_markers)
     for idx, ei in enumerate(ls_p_eis):
-        ax = axs[0,idx+1]
+        ax = axs[:6,idx+1]
         idx_p_id = idx_matches[idx]
         p_id = prot_ids[idx_p_id]
-        p_spikes = len(eic.vcd_dest.get_spike_times_for_cell(p_id))
-        cm = ax.imshow(ei, cmap='hot')
-        # Get index of peak
-        peak_idx = np.unravel_index(np.argmax(ei), ei.shape)
-        ax.plot(peak_idx[1], peak_idx[0], 'o', color='blue')
-        ax.axhline(peak_idx[0], color='blue')
-        ax.axvline(peak_idx[1], color='blue')
-        ax.set_title(f'Prot ID {p_id}\nPeak: {peak_idx}\n{p_spikes} sps\nr: {eic.ei_corr[idx_n_id, idx_p_id]:.2f}')
+        plot_ei_map(ei, p_id, eic.vcd_dest, axs=ax, label='Prot', n_interval=2, n_markers=n_ei_markers)
 
-    ax = axs[1,1]
+    # Plot cell type RFs
+    ax = axs[-1,0]
+    ax,ells=sp.plot_rfs(data, data.types.d_main_IDs[str_type], ax=ax, sd_mult=0.8, ell_color='k')
+    ax.invert_yaxis()
+    # Set idx_t_id ell color to red
+    ells[idx_t_id].set_facecolor('red')
+    ax.set_title(f'{str_type} RFs')
+    ax.set_xticks([])
+    ax.set_yticks([])
 
+    # Plot EI correlation distribution for source ID
+    ax = axs[-1,1]
     sorted_idx = np.argsort(eic.ei_corr[idx_n_id, :])[::-1]
     ax.plot(eic.ei_corr[idx_n_id, sorted_idx], '-o')
     ax.set_ylim(-0.5, 1)
@@ -298,15 +402,13 @@ def plot_ei_analysis(eic: MapAcrossChunk, data: so.SpikeOutputs,
     ax.set_title(f'EI correlations with Noise ID {n_id}')
     ax.set_xlabel('Protocol clusters')
 
-    ax = axs[1,0]
-    ax,ells=sp.plot_rfs(data, data.types.d_main_IDs[str_type], ax=ax, sd_mult=0.8, ell_color='k')
-    ax.invert_yaxis()
-    # Set idx_t_id ell color to red
-    ells[idx_t_id].set_facecolor('red')
-    ax.set_title(f'{str_type} RFs')
-
-    if str_save is not None:
-        plt.savefig(str_save + f'_{str_type}_{n_id}.png', bbox_inches='tight')
+    if str_savedir is not None:
+        str_savedir = os.path.join(str_savedir, CATEGORY)
+        if not os.path.exists(str_savedir):
+            os.makedirs(str_savedir)
+        str_match_ids= '_'.join([str(prot_ids[i]) for i in idx_matches])
+        str_save_img = os.path.join(str_savedir, f'{str_type}_{n_id}_matching_{str_match_ids}.png')
+        plt.savefig(str_save_img, bbox_inches='tight')
         plt.close()
 
 def plot_ei_analysis_all(eic: MapAcrossChunk, data: so.SpikeOutputs, n_thresh: float=0.8,
@@ -320,14 +422,14 @@ def plot_ei_analysis_all(eic: MapAcrossChunk, data: so.SpikeOutputs, n_thresh: f
     
     if not os.path.exists(str_savedir):
         os.makedirs(str_savedir)
-
     
     for str_type in ls_types:
         print(f'Processing {str_type}')
         type_ids = data.types.d_main_IDs[str_type]
-        for idx_t_id in range(len(type_ids)):
-            noise_id = int(type_ids[idx_t_id])
-            str_save = os.path.join(str_savedir, f'{str_type}_{noise_id}')
+        str_typedir = os.path.join(str_savedir, str_type)
+        if not os.path.exists(str_typedir):
+            os.makedirs(str_typedir)
+        for idx_t_id in tqdm.trange(len(type_ids)):
             plot_ei_analysis(eic, data, idx_t_id, str_type, 
                              eic.ei_maps_src, eic.ei_maps_dest,
-                              n_thresh=n_thresh, str_save=str_save)
+                              n_thresh=n_thresh, str_savedir=str_typedir)
