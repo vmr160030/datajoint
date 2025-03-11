@@ -146,7 +146,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
     
     ncols = len(ls_RGC_keys)
     if axs is None:
-        f, axs = plt.subplots(ncols=ncols, figsize=(ncols*5, 5), sharey=True, sharex=True)
+        f, axs = plt.subplots(ncols=ncols, figsize=(ncols*8, 5), sharey=True, sharex=True)
         # f.patch.set_facecolor('none')
         # f.text(0.1, 0.98, data.str_experiment, fontsize=12)
 
@@ -160,6 +160,8 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
     if ls_RGC_labels is None:
         ls_RGC_labels = ls_RGC_keys
     
+    g_x0, g_x1 = np.inf, -np.inf
+    g_y0, g_y1 = np.inf, -np.inf
     for i, str_key in enumerate(ls_RGC_keys):
         ls_cells = d_IDs[str_key]
         ls_label = ls_RGC_labels[i]
@@ -171,6 +173,17 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
         _, ells = plot_rfs(data, ls_cells, ell_color=ls_colors[i], facecolor=ls_facecolors[i], 
                            ax=ax, alpha=alpha, b_zoom=b_zoom, sd_mult=sd_mult, SCALING=scaling)
         ax.set_title(ls_label+f' (n={len(ls_cells)}) RFs')
+
+        # Get current axis limits
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+        g_x0, g_x1 = min(g_x0, x0), max(g_x1, x1)
+        g_y0, g_y1 = min(g_y0, y0), max(g_y1, y1)
+
+    if b_zoom:
+        for ax in axs:
+            ax.set_xlim(g_x0, g_x1)
+            ax.set_ylim(g_y0, g_y1)
 
     if b_ticks_off:
         for ax in axs:
@@ -184,16 +197,14 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
         ax.set_facecolor('none')
     
 
-    # Add scalebar to first ax
-    ax = axs[0]
-    # Get current axis limits
-    x0, x1 = ax.get_xlim()
-    y0, y1 = ax.get_ylim()
-    # ax.plot([100, 100+n_scalebar], [100, 100], c='k', linewidth=2)
-    # ax.text(100+n_scalebar/2, 100-10, f'{n_scalebar} um', horizontalalignment='center')
-    ax.plot([x0+100, x0+100+n_scalebar], [y0+100, y0+100], c='k', linewidth=2)
-    ax.plot([x0+100, x0+100], [y0+100, y0+100+n_scalebar], c='k', linewidth=2)
-    ax.text(x0+100+n_scalebar/2, y0+100-30, f'{n_scalebar} um', horizontalalignment='center', verticalalignment='top')
+    # Add scalebar
+    offset = 0.08*(x1-x0)
+    for ax in axs:
+        # ax.plot([100, 100+n_scalebar], [100, 100], c='k', linewidth=2)
+        # ax.text(100+n_scalebar/2, 100-10, f'{n_scalebar} um', horizontalalignment='center')
+        ax.plot([x0+offset, x0+offset+n_scalebar], [y0+offset, y0+offset], c='k', linewidth=2)
+        ax.plot([x0+offset, x0+offset], [y0+offset, y0+offset+n_scalebar], c='k', linewidth=2)
+        ax.text(x0+offset+n_scalebar/2, y0+offset*0.9, f'{n_scalebar} um', horizontalalignment='center', verticalalignment='top')
 
     return axs
 
@@ -217,7 +228,7 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
         axs = np.array([axs])
     
     if ls_colors is None:
-        ls_colors = ['C1', 'C0']
+        ls_colors = ['k', 'gray']#['C1', 'C0']
 
     if ls_RGC_labels is None:
         ls_RGC_labels = ls_RGC_keys
