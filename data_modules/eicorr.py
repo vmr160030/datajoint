@@ -315,8 +315,32 @@ def save_and_remap_typing_data(str_new_class_txt: str, mapper: MapAcrossChunk, d
     data.remap_sta_vcd(d_match_IDs)
     print('Updated typing data and remapped SpikeOutputs sta data.')
 
-def plot_ei_map(ei_map, n_ID, vcd, axs=None, label=None,
-                n_interval=2, n_markers=5):
+def get_top_electrodes(ei_map, n_ID, vcd, n_interval=2, n_markers=5):
+    # Reshape EI timeseries
+    ei = vcd.get_ei_for_cell(n_ID).ei
+    sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
+    ei = reshape_ei(ei, sorted_electrodes)
+
+    ## Label top n_markers pixels spaced by n_interval in the heatmap
+    # Sorted index of pixels
+    ei_map_sidx = np.argsort(ei_map.flatten())[::-1]
+    top_idx = ei_map_sidx[::n_interval][:n_markers]
+
+    # Sort top_idx by argmin of EI time series
+    amin_ei_ts = np.zeros(n_markers)
+    for i in range(n_markers):
+        y, x = np.unravel_index(top_idx[i], ei_map.shape)
+        # ei_ts = ei_grid[:, y, x]
+        ei_ts = ei[y, x, :]
+        amin_ei_ts[i] = np.argmin(ei_ts)
+    top_idx = top_idx[np.argsort(amin_ei_ts)]
+
+    return top_idx
+
+
+def plot_ei_map(ei_map, n_ID, vcd, top_idx, axs=None, label=None):
+    # top_idx is the top n_markers pixels to plot, returned by get_top_electrodes
+    n_markers = len(top_idx)
     if axs is None:
         f, axs = plt.subplots(nrows=n_markers+1, figsize=(5, 10),
                               gridspec_kw={'height_ratios': [1]+[1/n_markers]*n_markers})
@@ -342,20 +366,6 @@ def plot_ei_map(ei_map, n_ID, vcd, axs=None, label=None,
     ei = vcd.get_ei_for_cell(n_ID).ei
     sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
     ei = reshape_ei(ei, sorted_electrodes)
-
-    ## Label top n_markers pixels spaced by n_interval in the heatmap
-    # Sorted index of pixels
-    ei_map_sidx = np.argsort(ei_map.flatten())[::-1]
-    top_idx = ei_map_sidx[::n_interval][:n_markers]
-
-    # Sort top_idx by argmin of EI time series
-    amin_ei_ts = np.zeros(n_markers)
-    for i in range(n_markers):
-        y, x = np.unravel_index(top_idx[i], ei_map.shape)
-        # ei_ts = ei_grid[:, y, x]
-        ei_ts = ei[y, x, :]
-        amin_ei_ts[i] = np.argmin(ei_ts)
-    top_idx = top_idx[np.argsort(amin_ei_ts)]
 
     for i in range(n_markers):
         y, x = np.unravel_index(top_idx[i], ei_map.shape)
@@ -429,18 +439,23 @@ def plot_ei_analysis(mapper: MapAcrossChunk, data: so.SpikeOutputs,
                           gridspec_kw={'height_ratios': [1] + [1/n_ei_markers]*n_ei_markers + [1]},
                           layout='constrained')
 
+    # Get top electrodes for first noise EI map
+    top_idx = get_top_electrodes(ls_n_eis[0], n_ids[0], mapper.vcd_src, 
+                                 n_interval=2, n_markers=n_ei_markers)
+    
+    
     # Plot noise and protocol EI maps
     for idx, ei in enumerate(ls_n_eis):
         ax = axs[:6,idx]
         n_ei = ls_n_eis[idx]
         n_id = n_ids[idx]
         tmp_type = data.types.d_types[n_id]
-        plot_ei_map(n_ei, n_id, mapper.vcd_src, axs=ax, label=f'Noise {tmp_type}', n_interval=2, n_markers=n_ei_markers)
+        plot_ei_map(n_ei, n_id, mapper.vcd_src, top_idx=top_idx, axs=ax, label=f'Noise {tmp_type}')
     for idx, ei in enumerate(ls_p_eis):
         ax = axs[:6,idx+len(ls_n_eis)]
         idx_p_id = idx_matches[idx]
         p_id = prot_ids[idx_p_id]
-        plot_ei_map(ei, p_id, mapper.vcd_dest, axs=ax, label='Prot', n_interval=2, n_markers=n_ei_markers)
+        plot_ei_map(ei, p_id, mapper.vcd_dest, top_idx=top_idx, axs=ax, label='Prot')
 
     # Plot cell type RFs
     ax = axs[-1,0]
