@@ -100,6 +100,9 @@ class SpikeOutputs(object):
             self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
             self.N_CELLS = len(self.ARR_CELL_IDS)
     
+    def get_type_ids(self, str_type):
+        return self.types.d_main_IDs[str_type]
+    
     def load_sta_from_params(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
                              isi_bin_edges=None, load_ei=False, load_neurons=True, load_sta=False,
                              b_flip_y=False):
@@ -177,35 +180,35 @@ class SpikeOutputs(object):
             print(f'Loading STA ISI...')
             self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
 
-    def load_sta(self, df_sta, isi_bin_edges=None):
-        print(f'Loading STA from datajoint')
+    # def load_sta(self, df_sta, isi_bin_edges=None):
+    #     print(f'Loading STA from datajoint')
         
-        self.N_WIDTH = df_sta['noise_width'].iloc[0]
-        self.N_HEIGHT = df_sta['noise_height'].iloc[0]
-        self.NOISE_GRID_SIZE = df_sta['noise_grid_size'].iloc[0] # Typically 30 microns. 
+    #     self.N_WIDTH = df_sta['noise_width'].iloc[0]
+    #     self.N_HEIGHT = df_sta['noise_height'].iloc[0]
+    #     self.NOISE_GRID_SIZE = df_sta['noise_grid_size'].iloc[0] # Typically 30 microns. 
         
-        # Load RF fit parameters from datajoint
-        d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta',
-            'red_time_course': 'RedTimeCourse', 'green_time_course': 'GreenTimeCourse', 'blue_time_course': 'BlueTimeCourse'}
-        d_sta = {}
-        for n_id in df_sta.index:
-            d_sta[n_id] = {}
-            for str_df, str_vcd in d_keymap.items():
-                d_sta[n_id][str_vcd] = df_sta.loc[n_id, str_df]
+    #     # Load RF fit parameters from datajoint
+    #     d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta',
+    #         'red_time_course': 'RedTimeCourse', 'green_time_course': 'GreenTimeCourse', 'blue_time_course': 'BlueTimeCourse'}
+    #     d_sta = {}
+    #     for n_id in df_sta.index:
+    #         d_sta[n_id] = {}
+    #         for str_df, str_vcd in d_keymap.items():
+    #             d_sta[n_id][str_vcd] = df_sta.loc[n_id, str_df]
 
-        self.d_sta = d_sta
-        sta_cell_ids = list(self.d_sta.keys())
-        print(f'Loaded STA for {len(sta_cell_ids)} cells.')
+    #     self.d_sta = d_sta
+    #     sta_cell_ids = list(self.d_sta.keys())
+    #     print(f'Loaded STA for {len(sta_cell_ids)} cells.')
                 
-        self.ARR_CELL_IDS = np.union1d(np.array(sta_cell_ids), self.ARR_CELL_IDS)
-        self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
-        self.N_CELLS = len(self.ARR_CELL_IDS)
-        self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+    #     self.ARR_CELL_IDS = np.union1d(np.array(sta_cell_ids), self.ARR_CELL_IDS)
+    #     self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
+    #     self.N_CELLS = len(self.ARR_CELL_IDS)
+    #     self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
 
-        # Load STA ISI
-        if isi_bin_edges is not None:
-            print(f'Loading STA ISI...')
-            self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
+    #     # Load STA ISI
+    #     if isi_bin_edges is not None:
+    #         print(f'Loading STA ISI...')
+    #         self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
         
     def load_protocol_vcd(self, chunk_dir, dataset_name):
         """Load protocol VCD. 
@@ -223,6 +226,46 @@ class SpikeOutputs(object):
         self.p_vcd = vl.load_vision_data(analysis_path=chunk_dir, dataset_name=dataset_name, 
                                          include_ei=True, include_neurons=True)
 
+    def reload_types(self, str_classification):
+        self.types = ctio.CellTypes(str_classification, ls_RGC_labels=self.ls_RGC_labels)
+        self.ls_RGC_labels = list(self.types.d_main_IDs.keys())
+        print(f'Reloaded types from {str_classification}.')
+    
+    def remap_sta_vcd(self, d_ID_map: dict):
+        # Remap STA and VCD data to new IDs
+        d_new_sta = {}
+        for n_ID in d_ID_map.keys():
+            d_new_sta[d_ID_map[n_ID]] = self.d_sta[n_ID]
+        self.d_sta = d_new_sta
+
+        # Remap VCD data
+        d_new_vcd = {}
+        for n_ID in d_ID_map.keys():
+            d_new_vcd[d_ID_map[n_ID]] = self.vcd.main_datatable[n_ID]
+        self.vcd.main_datatable = d_new_vcd
+
+        # Remap STA spatial maps
+        if hasattr(self, 'd_sta_spatial'):
+            d_new_spatial = {}
+            for n_ID in d_ID_map.keys():
+                d_new_spatial[d_ID_map[n_ID]] = self.d_sta_spatial[n_ID]
+            self.d_sta_spatial = d_new_spatial
+        
+        # Remap STA convex hulls
+        if hasattr(self, 'd_sta_convex_hull'):
+            d_new_hull = {}
+            for n_ID in d_ID_map.keys():
+                d_new_hull[d_ID_map[n_ID]] = self.d_sta_convex_hull[n_ID]
+            self.d_sta_convex_hull = d_new_hull
+
+        # Update cell IDs
+        self.ARR_CELL_IDS = np.array(list(self.d_sta.keys()))
+        self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
+        self.N_CELLS = len(self.ARR_CELL_IDS)
+        self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+        print(f'Remapped to {self.N_CELLS} cells.')
+
+    
     def load_psth(self, str_protocol, ls_param_names, 
                   bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601),
                   b_load_isi=True, b_load_ei=False):

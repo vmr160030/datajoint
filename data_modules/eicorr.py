@@ -252,26 +252,62 @@ def format_number(n):
     return f'{n:.1f}{suffixes[suffix_index]}'
 
         
-def get_match_IDs(ei: MapAcrossChunk, data: so.SpikeOutputs, ls_types: list,
+def get_match_IDs(mapper: MapAcrossChunk, data: so.SpikeOutputs, ls_types: list,
                   n_thresh: float=0.8):
+    """
+    Returns:
+    d_match_IDs (dict): Dictionary of matched {source ID: destination ID}.
+    arr_matches (list): List of tuples (destination ID, cell type) for matched IDs.
+    """
     
     d_match_IDs = {}
     arr_matches = []
     for str_type in ls_types:
         type_ids = data.types.d_main_IDs[str_type]
-        type_ids = np.intersect1d(type_ids, ei.ids_src)
-        n_matches = 0
+        type_ids = np.intersect1d(type_ids, mapper.ids_src)
+        
+        n_1_to_1 = 0
+        n_1_to_many = 0
+        n_many_to_1 = 0
+
+
         for i, n_ID in enumerate(type_ids):
-            idx_src_id = np.where(ei.ids_src == n_ID)[0][0]
-            idx_matches = np.where(ei.ei_corr[idx_src_id, :] > n_thresh)[0]
+            idx_src_id = np.where(mapper.ids_src == n_ID)[0][0]
+            idx_matches = np.where(mapper.ei_corr[idx_src_id, :] > n_thresh)[0]
             if len(idx_matches) == 1:
-                n_ID_dest = ei.ids_dest[idx_matches[0]]
-                d_match_IDs[n_ID] = n_ID_dest
-                arr_matches.append([n_ID_dest, str_type])
-                n_matches += 1
-        print(f'{str_type}: {n_matches}/{len(type_ids)} 1:1 matches found')
+                idx_match = idx_matches[0]
+
+
+                # Check if there is many-to-one mapping
+                idx_src_matches = np.where(mapper.ei_corr[:, idx_match] > n_thresh)[0]
+                if len(idx_src_matches)==1:
+                    n_ID_dest = mapper.ids_dest[idx_match]
+                    d_match_IDs[n_ID] = n_ID_dest
+                    arr_matches.append([n_ID_dest, str_type])
+                    n_1_to_1 += 1
+                else:
+                    n_many_to_1 += 1
+            
+            elif len(idx_matches) > 1:
+                n_1_to_many += 1
+
+        print(f'{str_type}: {n_1_to_1}/{len(type_ids)} 1:1 matches found.')
+        print(f'{str_type}: {n_1_to_many}/{len(type_ids)} 1:many matches found (will not use).')
+        print(f'{str_type}: {n_many_to_1}/{len(type_ids)} many:1 matches found (will not use).\n')
+        
         
     return d_match_IDs, arr_matches
+
+
+def save_and_remap_typing_data(str_new_class_txt: str, mapper: MapAcrossChunk, data: so.SpikeOutputs,
+                       ls_types: list, n_thresh: float=0.8):
+    d_match_IDs, arr_matches = get_match_IDs(mapper, data, ls_types, n_thresh)
+    np.savetxt(str_new_class_txt, arr_matches, fmt='%s', delimiter='  ')
+    print(f'Saved matched typing file to {str_new_class_txt}')
+
+    data.reload_types(str_new_class_txt)
+    data.remap_sta_vcd(d_match_IDs)
+    print('Updated typing data and remapped SpikeOutputs sta data.')
 
 def plot_ei_map(ei_map, n_ID, vcd, axs=None, label=None,
                 n_interval=2, n_markers=5):
