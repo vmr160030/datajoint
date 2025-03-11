@@ -380,10 +380,11 @@ def plot_ei_analysis(mapper: MapAcrossChunk, data: so.SpikeOutputs,
                      str_savedir=None):
     n_id = data.types.d_main_IDs[str_type][idx_t_id]
     n_id = int(n_id)
+    n_ids = [n_id] # For many-to-one matches
 
-    noise_ids = np.array(mapper.vcd_src.get_cell_ids())
-    idx_n_id = np.where(noise_ids == n_id)[0][0]
-    n_ei = n_ei_maps[idx_n_id]
+    all_src_ids = np.array(mapper.vcd_src.get_cell_ids())
+    idx_n_id = np.where(all_src_ids == n_id)[0][0]
+    ls_n_eis = [n_ei_maps[idx_n_id]]
     
     # Find matches above threshold
     idx_matches = np.where(mapper.ei_corr[idx_n_id, :] > n_thresh)[0]
@@ -402,6 +403,8 @@ def plot_ei_analysis(mapper: MapAcrossChunk, data: so.SpikeOutputs,
         idx_src_matches = np.where(mapper.ei_corr[:, idx_match] > n_thresh)[0]
         if len(idx_src_matches)>1:
             CATEGORY = '3_many_to_one_match'
+            ls_n_eis = [n_ei_maps[i] for i in idx_src_matches]
+            n_ids = [all_src_ids[i] for i in idx_src_matches]
         else:
             CATEGORY = '4_one_to_one_match'
         
@@ -413,17 +416,21 @@ def plot_ei_analysis(mapper: MapAcrossChunk, data: so.SpikeOutputs,
     prot_ids = np.array(mapper.vcd_dest.get_cell_ids())
     ls_p_eis = [p_ei_maps[i] for i in idx_matches]
 
-    ncols = len(ls_p_eis)+1
+    ncols = len(ls_p_eis)+len(ls_n_eis)
     n_ei_markers = 5
     f, axs = plt.subplots(ncols=ncols, nrows=2+n_ei_markers, figsize=(ncols*5, 12),
                           gridspec_kw={'height_ratios': [1] + [1/n_ei_markers]*n_ei_markers + [1]},
                           layout='constrained')
 
     # Plot noise and protocol EI maps
-    ax = axs[:6,0]
-    plot_ei_map(n_ei, n_id, mapper.vcd_src, axs=ax, label='Noise', n_interval=2, n_markers=n_ei_markers)
+    for idx, ei in enumerate(ls_n_eis):
+        ax = axs[:6,idx]
+        n_ei = ls_n_eis[idx]
+        n_id = n_ids[idx]
+        str_type = data.types.d_types[n_id]
+        plot_ei_map(n_ei, n_id, mapper.vcd_src, axs=ax, label=f'Noise {str_type}', n_interval=2, n_markers=n_ei_markers)
     for idx, ei in enumerate(ls_p_eis):
-        ax = axs[:6,idx+1]
+        ax = axs[:6,idx+len(ls_n_eis)]
         idx_p_id = idx_matches[idx]
         p_id = prot_ids[idx_p_id]
         plot_ei_map(ei, p_id, mapper.vcd_dest, axs=ax, label='Prot', n_interval=2, n_markers=n_ei_markers)
