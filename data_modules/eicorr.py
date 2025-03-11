@@ -427,8 +427,8 @@ def plot_ei_analysis(mapper: MapAcrossChunk, data: so.SpikeOutputs,
         ax = axs[:6,idx]
         n_ei = ls_n_eis[idx]
         n_id = n_ids[idx]
-        str_type = data.types.d_types[n_id]
-        plot_ei_map(n_ei, n_id, mapper.vcd_src, axs=ax, label=f'Noise {str_type}', n_interval=2, n_markers=n_ei_markers)
+        tmp_type = data.types.d_types[n_id]
+        plot_ei_map(n_ei, n_id, mapper.vcd_src, axs=ax, label=f'Noise {tmp_type}', n_interval=2, n_markers=n_ei_markers)
     for idx, ei in enumerate(ls_p_eis):
         ax = axs[:6,idx+len(ls_n_eis)]
         idx_p_id = idx_matches[idx]
@@ -453,6 +453,11 @@ def plot_ei_analysis(mapper: MapAcrossChunk, data: so.SpikeOutputs,
     ax.axhline(n_thresh, color='red')
     ax.set_title(f'EI correlations with Noise ID {n_id}')
     ax.set_xlabel('Protocol clusters')
+
+    # Set axis off for those not used
+    for i in range(2, ncols):
+        ax = axs[-1, i]
+        ax.axis('off')
 
     if str_savedir is not None:
         str_savedir = os.path.join(str_savedir, CATEGORY)
