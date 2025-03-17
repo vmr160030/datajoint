@@ -268,10 +268,13 @@ class SpikeOutputs(object):
     
     def load_psth(self, str_protocol, ls_param_names, 
                   bin_rate=100.0, isi_bin_edges=np.linspace(0,300,601),
-                  b_load_isi=True, b_load_ei=False):
+                  b_load_isi=True, b_load_ei=False, ls_filenames=None):
         c_data = sd.Dataset(self.str_experiment)
         self.param_names = ls_param_names
         self.str_protocol = str_protocol
+
+        if ls_filenames is not None:
+            self.ls_filenames = ls_filenames
 
         spike_dict, cluster_id, params, unique_params, pre_pts, stim_pts, tail_pts = c_data.get_spike_rate_and_parameters(
         str_protocol, None, self.param_names, sort_algorithm=self.str_algo, bin_rate=bin_rate, sample_rate=20000,
@@ -310,6 +313,7 @@ class SpikeOutputs(object):
         
         ids = np.array(cluster_id).astype(int)
         self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
+        # TODO: if this function is called after QC, GOOD_CELL_IDS should be intersection updated rather than union
         self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
@@ -328,6 +332,87 @@ class SpikeOutputs(object):
                                              dataset_name=self.ls_filenames[0], 
                                              include_ei=True)
 
+    
+    def load_psth_at_frame_multiple(self, str_protocol, ls_param_names, 
+                                    stride=2, ls_filenames=None):
+        # stride: Number of bins per frame. 
+        # Eg-for 60Hz framerate, stride=2 gets 120Hz bin rate.
+        if int(self.str_experiment[:-1]) < 20230926:
+            marginal_frame_rate = 60.31807657 # Upper bound on the frame rate to make sure that we don't miss any frames.
+        else:
+            marginal_frame_rate = 59.941548817817917 # Upper bound on the frame rate to make sure that we don't miss any frames.
+
+        if ls_filenames is not None:
+            self.ls_filenames = ls_filenames
+
+        c_data = sd.Dataset(self.str_experiment)
+        self.param_names = ls_param_names
+        self.str_protocol = str_protocol
+
+        
+        print(f'Getting frame multiple spike counts for {str_protocol} {self.ls_filenames}...')
+        print(f'Using frame rate {marginal_frame_rate:.2f} Hz. * {stride} = {marginal_frame_rate*stride:.2f} Hz bin rate.')
+
+        spike_dict, cluster_id, params, unique_params, pre_pts, stim_pts, tail_pts, mean_frame_rate = c_data.get_count_at_frame_multiple(
+            protocolStr=self.str_protocol, param_names=ls_param_names, 
+            sort_algorithm=self.str_algo, file_name=self.ls_filenames, 
+            frame_rate=marginal_frame_rate, stride=stride)
+        params['mean_frame_rate'] = mean_frame_rate
+        print(f'Found mean frame rate: {mean_frame_rate:.2f} Hz.')
+
+        params = dict_list_to_array(params)
+        unique_params = dict_list_to_array(unique_params)
+
+        n_epochs = spike_dict[cluster_id[0]].shape[0]
+        n_bin_dt = 1/(marginal_frame_rate*stride) * 1000 # in ms
+        bin_rate = marginal_frame_rate * stride
+        
+        # Check that pre_pts, stim_pts, tail_pts all have a uniform value
+        for pts in [pre_pts, stim_pts, tail_pts]:
+            if len(np.unique(pts)) != 1:
+                raise ValueError(f'{pts} has more than one unique value.')
+            
+        # n_pre_pts = int(pre_pts[0])
+        # n_stim_pts = int(stim_pts[0])
+        # n_tail_pts = int(tail_pts[0])
+        n_pre_pts = int(np.ceil(params['preTime'][0]*1e-3 * bin_rate))
+        n_stim_pts = int(np.ceil(params['stimTime'][0]*1e-3 * bin_rate))
+        n_tail_pts = int(np.ceil(params['tailTime'][0]*1e-3 * bin_rate))
+        
+        n_total_pts = n_pre_pts + n_stim_pts + n_tail_pts
+        print(f'Epochs have {n_pre_pts} pre, {n_stim_pts} stim, {n_tail_pts} tail points.')
+        print(f'Corresponding to {params["preTime"][0]} ms pre, {params["stimTime"][0]} ms stim, {params["tailTime"][0]} ms tail.')
+        print(f'Bin rate: {bin_rate:.2f} Hz; bin dt: {n_bin_dt:.2f} ms')
+
+        # Get PSTH matrix and total spike count for each cell
+        n_cells = len(cluster_id)
+        n_epochs = spike_dict[cluster_id[0]].shape[0]
+        # n_timepts = spike_dict[cluster_id[0]].shape[1]
+        psth = np.zeros((n_epochs, n_cells, n_total_pts))
+        total_sc = np.zeros(n_cells)
+        for idx, n_id in enumerate(cluster_id):
+            total_sc[idx] = np.sum(spike_dict[n_id])
+
+            # Convert sc to firing rate in Hz
+            spike_dict[n_id] = spike_dict[n_id] * bin_rate
+            for n_epoch in range(n_epochs):
+                psth[n_epoch, idx, :] = spike_dict[n_id][n_epoch]
+
+        self.stim = {'params': params, 'unique_params': unique_params, 
+                'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
+                'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
+                'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
+        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
+                        'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
+                        'total_spike_counts': total_sc, 'psth': psth}
+        
+        ids = np.array(cluster_id).astype(int)
+        self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
+        self.GOOD_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, ids)
+        self.N_CELLS = len(self.ARR_CELL_IDS)
+        self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+    
+    
     def load_isi(self, str_protocol, bin_edges=np.linspace(0,300,601), c_data=None, file_names=None):
         # Get ISI
         if c_data is None:
