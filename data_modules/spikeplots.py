@@ -78,7 +78,7 @@ def get_rf_ells(ls_cells: list, d_sta: dict, NOISE_GRID_SIZE: float, sd_mult: fl
 
 
 def plot_rfs(spikeout: so.SpikeOutputs, ls_cells, 
-             ell_color=None, ax=None, sd_mult=1.3, 
+             ell_color=None, ax=None, sd_mult=0.8, 
              alpha=0.6, facecolor='k', SCALING=None, b_label=False,
              b_zoom=True, lw=1):
     if not ax:
@@ -136,7 +136,7 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
 def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
                     ls_colors = sns.color_palette(), axs=None, ls_facecolors=None, alpha=0.6,
                     b_ticks_off=True, ls_RGC_labels=None, d_IDs=None,
-                    b_zoom=False, sd_mult=1.3, scaling=None, n_scalebar=100):
+                    b_zoom=False, sd_mult=0.8, scaling=None, n_scalebar=100):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs

@@ -1,7 +1,12 @@
+import os
+import numpy as np
+import pandas as pd
 import sys
+import spikeoutputs as so
+import spikeplots as sp
 sys.path.append('/Users/riekelabbackup/Desktop/Vyom/gitrepos/samarjit_datajoint/next-app/api/')
 import schema
-import numpy as np
+from helpers.utils import NAS_ANALYSIS_DIR
 
 def mea_exp_summary(exp_name: str):
     exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')[0]
@@ -164,4 +169,43 @@ def cell_typing_from_chunks(ls_chunk_ids, ls_cell_types=None):
                 ls_cell_types + \
                 ['typing_file_id','experiment_id',  'chunk_id']
     df = df[ls_order]
+    df.attrs['ls_cell_types'] = ls_cell_types
+    return df
+
+def mosaics_from_typing(df: pd.DataFrame, analysis_dir: str=None, ls_cell_types: list=None):
+    # Input df is output of cell_typing_from_chunks.
+    # Return df with SpikeOutputs object for each row
+    if analysis_dir is None:
+        analysis_dir = NAS_ANALYSIS_DIR
+    
+    if ls_cell_types is None:
+        ls_cell_types = df.attrs['ls_cell_types']
+    
+    df['data'] = None
+    for idx in df.index:
+        row = df.loc[idx]
+        d_init = {'str_experiment': row['exp_name'],
+            'dataset_name': row['algorithm'],
+            'str_algo': row['algorithm'],
+            'ls_RGC_labels': ls_cell_types,
+            }
+        d_init['paramsfile'] = os.path.join(analysis_dir, row['exp_name'],
+                                            row['chunk_name'], row['algorithm'],
+                                            f"{row['algorithm']}.params")
+        d_init['str_classification'] = os.path.join(analysis_dir, row['exp_name'],
+                                            row['chunk_name'], row['algorithm'],
+                                            row['typing_file_name'])
+        data = so.SpikeOutputs(**d_init)
+        data.load_sta_from_params()
+        df.at[idx, 'data'] = data
+
+        # Plot mosaics
+        rf_axs, tc_axs = sp.plot_type_rfs_and_tcs(data)
+        # Add exp and chunk annotation
+        str_annot = f"{row['exp_name']}, {row['chunk_name']}, {row['typing_file_name']}"
+        rf_axs[0].text(0, 1.1, str_annot,
+                       transform=rf_axs[0].transAxes, fontsize=12)
+        tc_axs[0].text(0, 1.1, str_annot,
+                          transform=tc_axs[0].transAxes, fontsize=12)
+
     return df
