@@ -1,0 +1,167 @@
+import sys
+sys.path.append('/Users/riekelabbackup/Desktop/Vyom/gitrepos/samarjit_datajoint/next-app/api/')
+import schema
+import numpy as np
+
+def mea_exp_summary(exp_name: str):
+    exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')[0]
+    eg_q = schema.EpochGroup() & f'experiment_id={exp_id}'
+    sc_q = schema.SortingChunk() & f'experiment_id={exp_id}'
+    sc_q = sc_q.proj('chunk_name', 'experiment_id',chunk_id='id')
+    eg_sc_q = eg_q.proj(group_label='label', group_id='id') * sc_q
+    # eb_q = eg_q.proj(group_label='label',group_id='id') * schema.EpochBlock.proj(group_id='parent_id', data_dir='data_dir', chunk_id='chunk_id')
+    eb_q = eg_sc_q * schema.EpochBlock.proj('chunk_id', 'protocol_id','data_dir', 
+                                            group_id='parent_id', block_id='id')  
+    p_q = eb_q * schema.Protocol.proj(..., protocol_name='name')
+
+    df = p_q.fetch(format='frame').reset_index()
+    # For each block_id, get first epoch id and its NDF parameter
+    df['NDF'] = np.nan
+    for bid in df['block_id'].values:
+        ep_q = schema.Epoch() & f'parent_id={bid}'
+        ep_id = ep_q.fetch('id')[0]
+        params = (schema.Epoch() & f'id={ep_id}').fetch('parameters')[0]
+        df.loc[df['block_id']==bid, 'NDF'] = params['NDF']
+
+
+    df = df.sort_values('data_dir').reset_index()
+
+    # Order columns
+    ls_order = ['data_dir', 'group_label', 'NDF','chunk_name', 'protocol_name',
+       'experiment_id', 'group_id', 'block_id', 'chunk_id', 'protocol_id']
+    df = df[ls_order]
+
+    return df
+
+def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
+    # # Given experiment id, get epoch data with epoch group labels
+    # Filter epochgroup by experiment_id, then join on EpochBlock, then join on Epoch
+    exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')[0]
+    eg_q = schema.EpochGroup() & f'experiment_id={exp_id}'
+    eb_q = eg_q.proj(group_label='label', group_id='id') * schema.EpochBlock.proj(group_id='parent_id', block_id='id')
+    e_q = eb_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
+    r_q = e_q * schema.Response.proj(..., epoch_id='parent_id', response_id='id') 
+    df = r_q.fetch(format='frame').reset_index()
+
+    # Add columns for any ls_params
+    if ls_params:
+        for param in ls_params:
+            df[param] = np.nan
+            for idx in df.index:
+                params = df.loc[idx, 'epoch_parameters']
+                if param in params:
+                    df.at[idx, param] = df.loc[idx, 'epoch_parameters'][param]
+                else:
+                    print(f'Parameter {param} not found in epoch_parameters for epoch_id {df.loc[idx, "epoch_id"]}')
+
+    # Move id columns to the end
+    ls_id_cols = ['group_id', 'block_id', 'epoch_id', 'response_id']
+    ls_order = [col for col in df.columns if col not in ls_id_cols] + ls_id_cols
+    df = df[ls_order]
+    
+    return df
+
+
+def search_protocol(str_search: str):
+    str_search = str_search.lower()
+    protocols = schema.Protocol().fetch('name')
+    protocols = np.unique(protocols)
+    matches = []
+    for p in protocols:
+        if str_search in p.lower():
+            matches.append(p)
+    matches = np.array(matches)
+    return matches
+
+def mea_meta_from_protocols(ls_protocol_names):
+    # Query protocol table
+    p_q = schema.Protocol() & [f'name="{protocol}"' for protocol in ls_protocol_names]
+    p_ids = p_q.fetch('protocol_id')
+    p_q = p_q.proj('protocol_id', protocol_name='name')
+
+    # Query EpochGroup with these protocol IDs, get associated experiment IDs
+    eg_q = schema.EpochGroup() & [f'protocol_id={p_id}' for p_id in p_ids]
+    ex_ids = eg_q.fetch('experiment_id')
+
+    # Join Experiment, EpochGroup, Protocol
+    ex_q = schema.Experiment() & [f'id={ex_id}' for ex_id in ex_ids]
+    ex_q = ex_q.proj('exp_name', 'is_mea', experiment_id='id')
+    eg_q = eg_q.proj('experiment_id', group_label='label', group_id='id')
+    eg_q = p_q * eg_q
+    eg_q = eg_q * ex_q
+
+    # Join with EpochBlock
+    eb_q = eg_q * schema.EpochBlock.proj('chunk_id', 'data_dir',
+                                         group_id='parent_id', block_id='id')
+    
+    # Join with SortingChunk and fetch
+    sc_q = schema.SortingChunk.proj('chunk_name', chunk_id='id')
+    eb_q = eb_q * sc_q
+    df = eb_q.fetch(format='frame').reset_index()
+
+    # For each block_id, get first epoch id and its NDF parameter
+    df['NDF'] = np.nan
+    for bid in df['block_id'].values:
+        ep_q = schema.Epoch() & f'parent_id={bid}'
+        ep_id = ep_q.fetch('id')[0]
+        params = (schema.Epoch() & f'id={ep_id}').fetch('parameters')[0]
+        df.loc[df['block_id']==bid, 'NDF'] = params['NDF']
+
+    # order columns
+    ls_order = ['data_dir', 'group_label', 'NDF', 'chunk_name', 
+                'protocol_name', 'exp_name', 'is_mea',
+                'experiment_id', 'protocol_id', 'group_id', 'block_id', 'chunk_id']
+    df = df[ls_order]
+    
+    return df
+
+
+def typing_summary_from_file(typing_file_id: int, ls_cell_types: list=None):
+    if ls_cell_types is None:
+        ls_cell_types = ['OffP', 'OffM', 'OnP', 'OnM', 'SBC']
+    # Query SortedCellType
+    sct_q = schema.SortedCellType() & f'file_id={typing_file_id}'
+    df = sct_q.fetch(format='frame').reset_index()
+
+    d_summary = {}
+    d_summary['total_clusters'] = len(df)
+    for str_type in ls_cell_types:
+        # Count the number of clusters that contain the cell type.
+        # Adding '/' as vision delimits with '/', to avoid matches like OnM with OnMystery
+        d_summary[str_type] = df['cell_type'].str.contains(str_type+'/', case=False).sum()
+    return d_summary
+
+
+def cell_typing_from_chunks(ls_chunk_ids, ls_cell_types=None):
+    if ls_cell_types is None:
+        ls_cell_types = ['OffP', 'OffM', 'OnP', 'OnM', 'SBC']
+    # Query CellTypeFile
+    ctf_q = schema.CellTypeFile() & [f'chunk_id={chunk_id}' for chunk_id in ls_chunk_ids]
+    ctf_q = ctf_q.proj('chunk_id', 'algorithm', typing_file_name='file_name',
+                       typing_file_id='id')
+    # Get associated chunk_name, exp_name
+    sc_q = schema.SortingChunk.proj('chunk_name', 'experiment_id', chunk_id='id')
+    ctf_q = ctf_q * sc_q
+    ex_q = schema.Experiment.proj('exp_name', experiment_id='id')
+    ctf_q = ctf_q * ex_q
+    df = ctf_q.fetch(format='frame').reset_index()
+
+    # Add cell type summary columns
+    df['total_clusters'] = 0
+    for str_type in ls_cell_types:
+        df[str_type] = 0
+
+    # For each typing file, get summary of cell types
+    for idx in df.index:
+        file_id = df.loc[idx, 'typing_file_id']
+        summary = typing_summary_from_file(file_id, ls_cell_types)
+        for key, val in summary.items():
+            df.at[idx, key] = val
+
+    # Order columns
+    ls_order = ['exp_name','chunk_name', 'algorithm', 
+                'typing_file_name', 'total_clusters'] + \
+                ls_cell_types + \
+                ['typing_file_id','experiment_id',  'chunk_id']
+    df = df[ls_order]
+    return df
