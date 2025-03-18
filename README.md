@@ -18,7 +18,7 @@ Install the following in your conda environment:
 ```mkdir mysql-docker
 cd mysql-docker
 wget https://raw.githubusercontent.com/datajoint/mysql-docker/master/docker-compose.yaml
-docker-compose up -d
+docker compose up -d
 ```
 
 4. Run latest tutorial .ipynb under `nbs/` :)
