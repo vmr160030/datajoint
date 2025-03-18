@@ -26,7 +26,10 @@ def mea_exp_summary(exp_name: str):
         ep_q = schema.Epoch() & f'parent_id={bid}'
         ep_id = ep_q.fetch('id')[0]
         params = (schema.Epoch() & f'id={ep_id}').fetch('parameters')[0]
-        df.loc[df['block_id']==bid, 'NDF'] = params['NDF']
+        if 'NDF' in params.keys():
+            df.loc[df['block_id']==bid, 'NDF'] = params['NDF']
+        else:
+            print(f'NDF parameter not found for block_id {bid}')
 
 
     df = df.sort_values('data_dir').reset_index()
@@ -110,11 +113,16 @@ def mea_meta_from_protocols(ls_protocol_names):
         ep_q = schema.Epoch() & f'parent_id={bid}'
         ep_id = ep_q.fetch('id')[0]
         params = (schema.Epoch() & f'id={ep_id}').fetch('parameters')[0]
-        df.loc[df['block_id']==bid, 'NDF'] = params['NDF']
+        if 'NDF' in params.keys():
+            df.loc[df['block_id']==bid, 'NDF'] = params['NDF']
+        # else:
+            # print(f'NDF parameter not found for {df.loc[df["block_id"]==bid]}')
 
+    df['data_xxx'] = df['data_dir'].apply(lambda x: x.split('/')[-1])
+    
     # order columns
     ls_order = ['data_dir', 'group_label', 'NDF', 'chunk_name', 
-                'protocol_name', 'exp_name', 'is_mea',
+                'protocol_name', 'exp_name', 'data_xxx', 'is_mea',
                 'experiment_id', 'protocol_id', 'group_id', 'block_id', 'chunk_id']
     df = df[ls_order]
     
@@ -137,7 +145,7 @@ def typing_summary_from_file(typing_file_id: int, ls_cell_types: list=None):
     return d_summary
 
 
-def cell_typing_from_chunks(ls_chunk_ids, ls_cell_types=None):
+def cell_typing_from_chunks(ls_chunk_ids, ls_cell_types=None, b_remove_zeros=True):
     if ls_cell_types is None:
         ls_cell_types = ['OffP', 'OffM', 'OnP', 'OnM', 'SBC']
     # Query CellTypeFile
@@ -157,52 +165,83 @@ def cell_typing_from_chunks(ls_chunk_ids, ls_cell_types=None):
         df[str_type] = 0
 
     # For each typing file, get summary of cell types
+    ls_remove = []
     for idx in df.index:
         file_id = df.loc[idx, 'typing_file_id']
         summary = typing_summary_from_file(file_id, ls_cell_types)
+        # Check if all cell types are zero
+        b_all_zeros = all([summary[str_type]==0 for str_type in ls_cell_types])
+        if b_all_zeros:
+            str_print = df.loc[idx, 'exp_name'] + ', ' + df.loc[idx, 'chunk_name'] + ', ' + df.loc[idx, 'typing_file_name']
+            print(f'No cell type matches found for {str_print}')
+            ls_remove.append(idx)
+        
         for key, val in summary.items():
             df.at[idx, key] = val
+
+    if b_remove_zeros:
+        df = df.drop(ls_remove)
+        df = df.reset_index(drop=True)
+
 
     # Order columns
     ls_order = ['exp_name','chunk_name', 'algorithm', 
                 'typing_file_name', 'total_clusters'] + \
                 ls_cell_types + \
-                ['typing_file_id','experiment_id',  'chunk_id']
+                ['experiment_id',  'chunk_id', 'typing_file_id']
     df = df[ls_order]
     df.attrs['ls_cell_types'] = ls_cell_types
     return df
 
-def mosaics_from_typing(df: pd.DataFrame, analysis_dir: str=None, ls_cell_types: list=None):
-    # Input df is output of cell_typing_from_chunks.
-    # Return df with SpikeOutputs object for each row
+def mea_data_from_meta(rows: pd.DataFrame, ls_cell_types=None):
+    # Given a row from cell_typing_from_chunks
+    # Return a SpikeOutputs object
+    if ls_cell_types is None:
+        ls_cell_types = ['OffP', 'OffM', 'OnP', 'OnM', 'SBC']
+    row = rows.iloc[0]
+    d_init = {'str_experiment': row['exp_name'],
+        'dataset_name': row['algorithm'],
+        'str_algo': row['algorithm'],
+        'ls_RGC_labels': ls_cell_types}
+    d_init['paramsfile'] = os.path.join(NAS_ANALYSIS_DIR, row['exp_name'],
+                                        row['chunk_name'], row['algorithm'],
+                                        f"{row['algorithm']}.params")
+    d_init['str_classification'] = os.path.join(NAS_ANALYSIS_DIR, row['exp_name'],
+                                        row['chunk_name'], row['algorithm'],
+                                        row['typing_file_name'])
+    d_init['ls_filenames'] = rows['data_xxx'].values
+    data = so.SpikeOutputs(**d_init)
+    return data
+
+
+def mosaics_from_typing(df_ct: pd.DataFrame, df_meta: pd.DataFrame,
+                        analysis_dir: str=None, ls_cell_types: list=None):
+    # Input df_ct is output of cell_typing_from_chunks.
+    # df_meta is output of mea_meta_from_protocols
+
     if analysis_dir is None:
         analysis_dir = NAS_ANALYSIS_DIR
     
     if ls_cell_types is None:
-        ls_cell_types = df.attrs['ls_cell_types']
+        ls_cell_types = df_ct.attrs['ls_cell_types']
+        print(ls_cell_types)
     
-    df['data'] = None
-    for idx in df.index:
-        row = df.loc[idx]
-        d_init = {'str_experiment': row['exp_name'],
-            'dataset_name': row['algorithm'],
-            'str_algo': row['algorithm'],
-            'ls_RGC_labels': ls_cell_types,
-            }
-        d_init['paramsfile'] = os.path.join(analysis_dir, row['exp_name'],
-                                            row['chunk_name'], row['algorithm'],
-                                            f"{row['algorithm']}.params")
-        d_init['str_classification'] = os.path.join(analysis_dir, row['exp_name'],
-                                            row['chunk_name'], row['algorithm'],
-                                            row['typing_file_name'])
-        data = so.SpikeOutputs(**d_init)
+    df = pd.merge(df_meta, df_ct, on=np.intersect1d(df_meta.columns, df_ct.columns).tolist(), how='inner')
+    for tfid in df['typing_file_id'].values:
+        rows = df[df['typing_file_id']==tfid]
+        data = mea_data_from_meta(rows)
+        str_annot = f"{rows['exp_name'].values[0]}, {rows['chunk_name'].values[0]}, {rows['typing_file_name'].values[0]}"
+        # Check that cell type IDs were found
+        if data.types.no_matches:
+            print(f'No cell type matches found for {str_annot}')
+            continue
+
         data.load_sta_from_params()
-        df.at[idx, 'data'] = data
 
         # Plot mosaics
         rf_axs, tc_axs = sp.plot_type_rfs_and_tcs(data)
         # Add exp and chunk annotation
-        str_annot = f"{row['exp_name']}, {row['chunk_name']}, {row['typing_file_name']}"
+        
         rf_axs[0].text(0, 1.1, str_annot,
                        transform=rf_axs[0].transAxes, fontsize=12)
         tc_axs[0].text(0, 1.1, str_annot,
