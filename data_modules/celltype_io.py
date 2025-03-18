@@ -52,11 +52,21 @@ class CellTypes(object):
 
         # Get list of IDs for main RGC types
         self.d_main_IDs = {}
+        n_matches = 0
         for str_RGC in self.ls_RGC_labels:
             arr_type_ids = self.get_ids_of_type(str_RGC)
             # Add to dictionary if there are any IDs
             if len(arr_type_ids) > 0:
                 self.d_main_IDs[str_RGC] = arr_type_ids
+                n_matches += len(arr_type_ids)
+        
+        # Check if no type matches found
+        
+        if n_matches == 0:
+            self.no_matches = True
+            print(f'No matches found in classification {str_txt}')
+        else:
+            self.no_matches = False
 
     def print_summary(self, b_only_main_types=False):
         print('Total number of cells: {}'.format(len(self.d_types)))
