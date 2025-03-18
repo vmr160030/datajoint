@@ -239,12 +239,13 @@ def mosaics_from_typing(df_ct: pd.DataFrame, df_meta: pd.DataFrame,
         data.load_sta_from_params()
 
         # Plot mosaics
-        rf_axs, tc_axs = sp.plot_type_rfs_and_tcs(data)
+        # rf_axs, tc_axs = sp.plot_type_rfs_and_tcs(data)
+        rf_axs = sp.plot_type_rfs(data)
         # Add exp and chunk annotation
         
         rf_axs[0].text(0, 1.1, str_annot,
                        transform=rf_axs[0].transAxes, fontsize=12)
-        tc_axs[0].text(0, 1.1, str_annot,
-                          transform=tc_axs[0].transAxes, fontsize=12)
+        # tc_axs[0].text(0, 1.1, str_annot,
+        #                   transform=tc_axs[0].transAxes, fontsize=12)
 
     return df
