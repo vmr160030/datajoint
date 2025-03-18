@@ -313,8 +313,8 @@ class SpikeOutputs(object):
         
         ids = np.array(cluster_id).astype(int)
         self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
-        # TODO: if this function is called after QC, GOOD_CELL_IDS should be intersection updated rather than union
-        self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
+        self.GOOD_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, ids)
+        self.update_ids(self.GOOD_CELL_IDS)
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
 
@@ -409,6 +409,7 @@ class SpikeOutputs(object):
         ids = np.array(cluster_id).astype(int)
         self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
         self.GOOD_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, ids)
+        self.update_ids(self.GOOD_CELL_IDS)
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
     
