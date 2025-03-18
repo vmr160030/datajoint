@@ -6,6 +6,10 @@ Install the following in your conda environment:
 - visionloader (from `artificial_retina_software_pipeline`)
 - symphony_data (from Mike's `MEA/src/analysis`)
 
+Pull Samarjit's datajoint repo:
+- https://github.com/SamarjitK/datajoint
+- I'm generally using my `dev_vr` branch in this. Generally the major updates should have been merged to main.
+
 ## Datajoint and Docker setup
 1. Install latest datajoint package (v0.14.1 as of Feb 2024):
     1a. Pull this gitrepo to a local dir: https://github.com/datajoint/datajoint-python and cd to it
