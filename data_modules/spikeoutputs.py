@@ -116,7 +116,7 @@ class SpikeOutputs(object):
         if not os.path.exists(str_globals):
             raise ValueError(f'{str_globals} does not exist.')
         
-        print(f'Loading STA from {paramsfile}...')
+        print(f'Loading STA RF fits from {paramsfile}...')
         self.vcd = vl.load_vision_data(analysis_path=os.path.dirname(paramsfile), dataset_name=dataset_name, 
                                        include_params=True, include_runtimemovie_params=True, include_ei=load_ei,
                                        include_neurons=load_neurons, include_sta=load_sta)
@@ -139,7 +139,7 @@ class SpikeOutputs(object):
                 d_sta[n_id] = self.vcd.main_datatable[n_id]
         self.d_sta = d_sta
         sta_cell_ids = list(self.d_sta.keys())
-        print(f'Loaded STA for {len(sta_cell_ids)} cells.')
+        print(f'Loaded STA RF fits for {len(sta_cell_ids)} cells.')
 
         if b_flip_y:
             for n_ID in self.d_sta.keys():
@@ -177,7 +177,7 @@ class SpikeOutputs(object):
 
         # Load STA ISI
         if isi_bin_edges is not None:
-            print(f'Loading STA ISI...')
+            print(f'Loading WN ISI...')
             self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
 
     # def load_sta(self, df_sta, isi_bin_edges=None):
