@@ -9,8 +9,6 @@ from scipy.interpolate import griddata
 import spikeoutputs as so
 import spikeplots as sp
 
-SORT_PATH, JSON_PATH, OUTPUT_PATH = cfg.get_data_paths()
-
 def sort_electrode_map(electrode_map: np.ndarray) -> np.ndarray:
     """
     Sort electrodes by their x, y locations.
