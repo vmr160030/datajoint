@@ -357,8 +357,10 @@ class SpikeOutputs(object):
             protocolStr=self.str_protocol, param_names=ls_param_names, 
             sort_algorithm=self.str_algo, file_name=self.ls_filenames, 
             frame_rate=marginal_frame_rate, stride=stride)
-        params['mean_frame_rate'] = mean_frame_rate
+        
         print(f'Found mean frame rate: {mean_frame_rate:.2f} Hz.')
+        print(f'Using frame rate {marginal_frame_rate:.2f} Hz. * {stride} = {marginal_frame_rate*stride:.2f} Hz bin rate.')
+        params['mean_frame_rate'] = marginal_frame_rate
 
         params = dict_list_to_array(params)
         unique_params = dict_list_to_array(unique_params)
@@ -375,9 +377,9 @@ class SpikeOutputs(object):
         # n_pre_pts = int(pre_pts[0])
         # n_stim_pts = int(stim_pts[0])
         # n_tail_pts = int(tail_pts[0])
-        n_pre_pts = int(np.ceil(params['preTime'][0]*1e-3 * bin_rate))
-        n_stim_pts = int(np.ceil(params['stimTime'][0]*1e-3 * bin_rate))
-        n_tail_pts = int(np.ceil(params['tailTime'][0]*1e-3 * bin_rate))
+        n_pre_pts = round(params['preTime'][0]*1e-3 * marginal_frame_rate) * stride
+        n_stim_pts = round(params['stimTime'][0]*1e-3 * marginal_frame_rate) * stride
+        n_tail_pts = round(params['tailTime'][0]*1e-3 * marginal_frame_rate) * stride
         
         n_total_pts = n_pre_pts + n_stim_pts + n_tail_pts
         print(f'Epochs have {n_pre_pts} pre, {n_stim_pts} stim, {n_tail_pts} tail points.')
@@ -432,11 +434,11 @@ class SpikeOutputs(object):
     def print_stim_summary(self):
         # Print stim summary from stim dictionary
         n_bin_dt = self.stim['n_bin_dt']
-        print('epoch length: ' + str(self.stim['n_total_pts'] * n_bin_dt) + ' ms')
+        print(f'Epoch length: {self.stim["n_total_pts"] * n_bin_dt:.2f} ms')
         print('Total epochs: ' + str(self.stim['n_epochs']))
-        print('pre: ' + str(self.stim['n_pre_pts'] * n_bin_dt) + ' ms; stim: ' + str(self.stim['n_stim_pts'] * n_bin_dt) + ' ms; tail: ' + str(self.stim['n_tail_pts'] * n_bin_dt) + ' ms')
+        print(f'pre: {self.stim["n_pre_pts"] * n_bin_dt:.2f} ms; stim: {self.stim["n_stim_pts"] * n_bin_dt:.2f} ms; tail: {self.stim["n_tail_pts"] * n_bin_dt:.2f} ms')
         print('pre pts: ' + str(self.stim['n_pre_pts']) + '; stim pts: ' + str(self.stim['n_stim_pts']) + '; tail pts: ' + str(self.stim['n_tail_pts']))
-        print('bin rate: ' + str(self.spikes['bin_rate']) + ' Hz; bin dt: ' + str(n_bin_dt) + ' ms')
+        print(f'bin rate: {self.spikes["bin_rate"]:.2f} Hz; bin dt: {n_bin_dt:.2f} ms')
         
     def save_pkl(self, str_path: str=None):
         if not str_path:
