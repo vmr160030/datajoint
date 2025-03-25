@@ -84,6 +84,7 @@ class MapAcrossChunk(object):
                  str_ei_corr_p: str = None):
         self.vcd_src = vcd_src
         self.vcd_dest = vcd_dest
+        self.d_match_IDs = {} # This will be filled by get_match_IDs for {src: dest} cluster IDs
         # self.str_dest_path = str_dest_path
 
         # # Load dest vcd
@@ -165,6 +166,17 @@ class MapAcrossChunk(object):
     def load_ei_corr(self, str_pkl: str):
         with open(str_pkl, 'rb') as f:
             self.ei_corr = pickle.load(f)
+    
+    def save_mapping(self, str_txt: str):
+        # Save d_match_IDs to txt file
+        # Format: source ID, destination ID
+        with open(str_txt, 'w') as f:
+            # Write header
+            f.write('Source_ID Destination_ID\n')
+            for k, v in self.d_match_IDs.items():
+                f.write(f'{k} {v}\n')
+        print(f'Saved mapping to {str_txt}')
+
 
 
 
@@ -287,7 +299,7 @@ def get_match_IDs(mapper: MapAcrossChunk, data: so.SpikeOutputs, ls_types: list,
                 if len(idx_src_matches)==1:
                     n_ID_dest = mapper.ids_dest[idx_match]
                     d_match_IDs[n_ID] = n_ID_dest
-                    arr_matches.append([n_ID_dest, str_type])
+                    arr_matches.append([n_ID_dest, f'All/{str_type}/'])
                     n_1_to_1 += 1
                 else:
                     n_many_to_1 += 1
@@ -300,14 +312,52 @@ def get_match_IDs(mapper: MapAcrossChunk, data: so.SpikeOutputs, ls_types: list,
         print(f'{str_type}: {n_many_to_1}/{len(type_ids)} many:1 matches found (will not use).\n')
         
         
+    mapper.d_match_IDs = d_match_IDs
+    
     return d_match_IDs, arr_matches
 
 
-def save_and_remap_typing_data(str_new_class_txt: str, mapper: MapAcrossChunk, data: so.SpikeOutputs,
+def save_and_remap_typing_data(str_new_class_txt: str, str_mapping_txt: str, 
+                               mapper: MapAcrossChunk, data: so.SpikeOutputs,
                        ls_types: list, n_thresh: float=0.8):
     d_match_IDs, arr_matches = get_match_IDs(mapper, data, ls_types, n_thresh)
     np.savetxt(str_new_class_txt, arr_matches, fmt='%s', delimiter='  ')
     print(f'Saved matched typing file to {str_new_class_txt}')
+    mapper.save_mapping(str_mapping_txt)
+
+    data.reload_types(str_new_class_txt)
+    data.remap_sta_vcd(d_match_IDs)
+    print('Updated typing data and remapped SpikeOutputs sta data.')
+
+def save_qc_class_txt(str_qc_src_txt: str, str_qc_dest_txt: str,
+                      mapper: MapAcrossChunk,
+                      data: so.SpikeOutputs, ls_types: list):
+    arr_src_matches = []
+    arr_dest_matches = []
+    # Get the key of the matched source ID from mapper.d_match_IDs
+    dest_to_src = {v: k for k, v in mapper.d_match_IDs.items()}
+    for str_type in ls_types:
+        dest_type_ids = data.get_type_ids(str_type)
+        for dest_id in dest_type_ids:
+            src_id = dest_to_src[dest_id]
+            arr_src_matches.append([src_id, f'All/{str_type}/'])
+            arr_dest_matches.append([dest_id, f'All/{str_type}/'])
+    
+    np.savetxt(str_qc_src_txt, arr_src_matches, fmt='%s', delimiter='  ')
+    np.savetxt(str_qc_dest_txt, arr_dest_matches, fmt='%s', delimiter='  ')
+    print(f'Saved source IDs QC typing file to {str_qc_src_txt}')
+    print(f'Saved dest IDs QC typing file to {str_qc_dest_txt}')
+
+def load_and_remap_typing_data(str_new_class_txt: str, str_mapping_txt: str, 
+                               data: so.SpikeOutputs):
+    # Load mapping txt
+    d_match_IDs = {}
+    with open(str_mapping_txt, 'r') as f:
+        # Skip header
+        f.readline()
+        for line in f:
+            src_id, dest_id = line.strip().split()
+            d_match_IDs[int(src_id)] = int(dest_id)
 
     data.reload_types(str_new_class_txt)
     data.remap_sta_vcd(d_match_IDs)
