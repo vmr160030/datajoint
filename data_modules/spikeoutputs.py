@@ -398,7 +398,8 @@ class SpikeOutputs(object):
             # Convert sc to firing rate in Hz
             spike_dict[n_id] = spike_dict[n_id] * bin_rate
             for n_epoch in range(n_epochs):
-                psth[n_epoch, idx, :] = spike_dict[n_id][n_epoch]
+                fr = spike_dict[n_id][n_epoch]
+                psth[n_epoch, idx, :] = fr[:n_total_pts]
 
         self.stim = {'params': params, 'unique_params': unique_params, 
                 'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
