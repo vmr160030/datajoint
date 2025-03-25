@@ -23,6 +23,7 @@ TypeError: Cannot convert numpy.ndarray to numpy.ndarray
 ```
 
 To fix this, downgrade pandas to an earlier version. For me, pandas 2.0.3 and numpy 1.24.3 work fine. To downgrade pandas, run the following in terminal with your conda env activated:
+
 `conda install -c conda-forge pandas=2.0.3`
 
 
