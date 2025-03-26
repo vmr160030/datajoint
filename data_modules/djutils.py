@@ -8,6 +8,20 @@ sys.path.append('/Users/riekelabbackup/Desktop/Vyom/gitrepos/samarjit_datajoint/
 import schema
 from helpers.utils import NAS_ANALYSIS_DIR
 
+
+def add_param_column(df: pd.DataFrame, param: str, col: str='epoch_parameters'):
+    # Add a column to a dataframe that contains the value of a parameter in a dictionary
+    # stored in a column of the dataframe.
+    df[param] = np.nan
+    for idx in df.index:
+        params = df.loc[idx, col]
+        if param in params:
+            df.at[idx, param] = df.loc[idx, col][param]
+        else:
+            print(f'Parameter {param} not found in {col} for index {idx}')
+    return df
+
+
 def mea_exp_summary(exp_name: str):
     exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')[0]
     eg_q = schema.EpochGroup() & f'experiment_id={exp_id}'
@@ -46,10 +60,21 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
     # Filter epochgroup by experiment_id, then join on EpochBlock, then join on Epoch
     exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')[0]
     eg_q = schema.EpochGroup() & f'experiment_id={exp_id}'
-    eb_q = eg_q.proj(group_label='label', group_id='id') * schema.EpochBlock.proj(group_id='parent_id', block_id='id')
-    e_q = eb_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
+    eg_q = eg_q.proj(cell_id='parent_id',group_label='label', group_id='id')
+    c_q = eg_q * schema.Cell.proj(cell_id='id', cell_label='cell_label', cell_properties='properties')
+    eb_q = c_q * schema.EpochBlock.proj('protocol_id', group_id='parent_id', block_id='id')
+    p_q = eb_q * schema.Protocol.proj(protocol_name='name')
+    e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
     r_q = e_q * schema.Response.proj(..., epoch_id='parent_id', response_id='id') 
     df = r_q.fetch(format='frame').reset_index()
+
+    # Add column for cell type if exists in cell_properties
+    df['cell_type'] = ''
+    for idx in df.index:
+        cell_props = df.loc[idx, 'cell_properties']
+        if cell_props:
+            if 'type' in cell_props:
+                df.at[idx, 'cell_type'] = cell_props['type']
 
     # Add columns for any ls_params
     if ls_params:
@@ -63,8 +88,12 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
                     print(f'Parameter {param} not found in epoch_parameters for epoch_id {df.loc[idx, "epoch_id"]}')
 
     # Move id columns to the end
-    ls_id_cols = ['group_id', 'block_id', 'epoch_id', 'response_id']
+    ls_id_cols = ['protocol_id', 'cell_id', 'group_id', 'block_id', 'epoch_id', 'response_id']
     ls_order = [col for col in df.columns if col not in ls_id_cols] + ls_id_cols
+    df = df[ls_order]
+
+    # Move cell type column to the front
+    ls_order = ['cell_type'] + [col for col in df.columns if col != 'cell_type']
     df = df[ls_order]
     
     return df
