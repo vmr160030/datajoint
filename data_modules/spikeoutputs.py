@@ -13,6 +13,7 @@ import celltype_io as ctio
 import symphony_data as sd
 import matplotlib.pyplot as plt
 import config as cfg
+from scipy.io import loadmat, savemat
 
 def dict_list_to_array(d):
     # Convert dictionary of lists to dictionary of arrays
@@ -415,6 +416,67 @@ class SpikeOutputs(object):
         self.update_ids(self.GOOD_CELL_IDS)
         self.N_CELLS = len(self.ARR_CELL_IDS)
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+
+    def load_spike_times(self, str_protocol, ls_param_names, 
+                         bin_rate=100.0, isi_bin_edges=np.linspace(0, 300, 601),
+                         b_load_isi=True, ls_filenames=None):
+        """
+        Load spike times and associated parameters for a given protocol.
+    
+        Parameters:
+            str_protocol: Protocol name (string).
+            ls_param_names: List of parameter names to extract.
+            bin_rate: Bin rate for spike times in Hz (default=100.0).
+            isi_bin_edges: Bin edges for ISI histogram (default=np.linspace(0, 300, 601)).
+            b_load_isi: Whether to load ISI data (default=True).
+            ls_filenames: List of filenames to process (default=None).
+        """
+        c_data = sd.Dataset(self.str_experiment)
+        self.param_names = ls_param_names
+        self.str_protocol = str_protocol
+    
+        if ls_filenames is not None:
+            self.ls_filenames = ls_filenames
+    
+        # Call get_spike_times_and_parameters from symphony_data.Dataset
+        spike_times, cluster_id, params, unique_params, pre_pts, stim_pts, tail_pts = c_data.get_spike_times_and_parameters(
+            protocolStr=str_protocol, groupStr=None, param_names=ls_param_names, 
+            sort_algorithm=self.str_algo, file_name=self.ls_filenames, 
+            bin_rate=bin_rate, sample_rate=20000)
+    
+        params = dict_list_to_array(params)
+        unique_params = dict_list_to_array(unique_params)
+    
+        n_epochs = spike_times.shape[1]
+        n_bin_dt = 1 / bin_rate * 1000  # in ms
+    
+        # Check that pre_pts, stim_pts, tail_pts all have a uniform value
+        for pts in [pre_pts, stim_pts, tail_pts]:
+            if len(np.unique(pts)) != 1:
+                raise ValueError(f'{pts} has more than one unique value.')
+    
+        n_pre_pts = int(pre_pts[0])
+        n_stim_pts = int(stim_pts[0])
+        n_tail_pts = int(tail_pts[0])
+        n_total_pts = n_pre_pts + n_stim_pts + n_tail_pts
+    
+        self.stim = {'params': params, 'unique_params': unique_params, 
+                     'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
+                     'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
+                     'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
+        self.spikes = {'spike_dict': spike_times, 'cluster_id': cluster_id, 
+                       'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt}
+    
+        ids = np.array(cluster_id).astype(int)
+        self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
+        self.GOOD_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, ids)
+        self.update_ids(self.GOOD_CELL_IDS)
+        self.N_CELLS = len(self.ARR_CELL_IDS)
+        self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
+    
+        if b_load_isi:
+            # Load protocol ISI
+            self.load_isi(str_protocol, bin_edges=isi_bin_edges, c_data=c_data, file_names=self.ls_filenames)
     
     
     def load_isi(self, str_protocol, bin_edges=np.linspace(0,300,601), c_data=None, file_names=None):
@@ -486,6 +548,10 @@ class SpikeOutputs(object):
         if 'd_sta_convex_hull' in d_load.keys():
             self.d_sta_convex_hull = d_load['d_sta_convex_hull']
         print('Loaded from ' + str_path)
+
+    def save_to_mat(self, str_path: str):
+        print(f'Saving to {str_path}...')
+
 
     def update_ids(self, good_ids: np.ndarray):
         self.GOOD_CELL_IDS = good_ids
