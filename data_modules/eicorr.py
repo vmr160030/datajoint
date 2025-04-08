@@ -348,16 +348,20 @@ def save_qc_class_txt(str_qc_src_txt: str, str_qc_dest_txt: str,
     print(f'Saved source IDs QC typing file to {str_qc_src_txt}')
     print(f'Saved dest IDs QC typing file to {str_qc_dest_txt}')
 
-def load_and_remap_typing_data(str_new_class_txt: str, str_mapping_txt: str, 
-                               data: so.SpikeOutputs):
-    # Load mapping txt
+def load_mapping(str_mapping: str):
     d_match_IDs = {}
-    with open(str_mapping_txt, 'r') as f:
+    with open(str_mapping, 'r') as f:
         # Skip header
         f.readline()
         for line in f:
             src_id, dest_id = line.strip().split()
             d_match_IDs[int(src_id)] = int(dest_id)
+    return d_match_IDs
+
+def load_and_remap_typing_data(str_new_class_txt: str, str_mapping_txt: str, 
+                               data: so.SpikeOutputs):
+    # Load mapping txt
+    d_match_IDs = load_mapping(str_mapping_txt)
 
     data.reload_types(str_new_class_txt)
     data.remap_sta_vcd(d_match_IDs)
