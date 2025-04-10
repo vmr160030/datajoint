@@ -30,10 +30,20 @@ def mea_exp_summary(exp_name: str):
     eg_sc_q = eg_q.proj(group_label='label', group_id='id') * sc_q
     # eb_q = eg_q.proj(group_label='label',group_id='id') * schema.EpochBlock.proj(group_id='parent_id', data_dir='data_dir', chunk_id='chunk_id')
     eb_q = eg_sc_q * schema.EpochBlock.proj('chunk_id', 'protocol_id','data_dir', 
+                                            'start_time', 'end_time',
                                             group_id='parent_id', block_id='id')  
     p_q = eb_q * schema.Protocol.proj(..., protocol_name='name')
 
     df = p_q.fetch(format='frame').reset_index()
+    df = df.sort_values('start_time').reset_index()
+    
+    # Add column of minutes_since_start
+    df['minutes_since_start'] = (df['end_time'] - df['start_time'].min()).dt.total_seconds() / 60
+    df['minutes_since_start'] = df['minutes_since_start'].round(2)
+    # Add delta_minutes which gives derivative along rows
+    df['duration_minutes'] = df['minutes_since_start'].diff().fillna(0)
+
+
     # For each block_id, get first epoch id and its NDF parameter
     df['NDF'] = np.nan
     for bid in df['block_id'].values:
@@ -46,10 +56,11 @@ def mea_exp_summary(exp_name: str):
             print(f'NDF parameter not found for block_id {bid}')
 
 
-    df = df.sort_values('data_dir').reset_index()
+    
 
     # Order columns
     ls_order = ['data_dir', 'group_label', 'NDF','chunk_name', 'protocol_name',
+    'duration_minutes', 'minutes_since_start', 'start_time', 'end_time',
        'experiment_id', 'group_id', 'block_id', 'chunk_id', 'protocol_id']
     df = df[ls_order]
 
