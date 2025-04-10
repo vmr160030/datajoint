@@ -41,7 +41,8 @@ def mea_exp_summary(exp_name: str):
     df['minutes_since_start'] = (df['end_time'] - df['start_time'].min()).dt.total_seconds() / 60
     df['minutes_since_start'] = df['minutes_since_start'].round(2)
     # Add delta_minutes which gives derivative along rows
-    df['duration_minutes'] = df['minutes_since_start'].diff().fillna(0)
+    df['duration_minutes'] = (df['end_time'] - df['start_time']).dt.total_seconds() / 60
+    df['duration_minutes'] = df['duration_minutes'].round(2)
 
 
     # For each block_id, get first epoch id and its NDF parameter
