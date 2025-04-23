@@ -44,7 +44,7 @@ class SpikeOutputs(object):
         ls_filenames       : List of data file names used by load_psth and load_isi. 
             eg-['data001', 'data002']
         ls_noise_filenames : List of noise file names used by load_isi. 
-            eg-['noise001', 'noise002']
+            eg-['data003', 'data004']
         """
         self.str_experiment = str_experiment
         self.str_protocol = str_protocol
