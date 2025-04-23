@@ -128,12 +128,12 @@ def mea_meta_from_protocols(ls_protocol_names):
     p_ids = p_q.fetch('protocol_id')
     p_q = p_q.proj('protocol_id', protocol_name='name')
 
-    # Query EpochGroup with these protocol IDs, get associated experiment IDs
-    # This causes bug because of no_group_protocol ID in EpochGroup. Use EpochBlock instead
-    # eg_q = schema.EpochGroup() & [f'protocol_id={p_id}' for p_id in p_ids]
-    # ex_ids = eg_q.fetch('experiment_id')
+    # Query EpochBlock with these protocol IDs, get associated experiment IDs
+    # WARNING: do not use EpochGroup ever for protocol_id queries bc of the "no_group_protocol" situation.
+    # Thank you to @DRezeanu for pointing this out.
     eb_q = schema.EpochBlock() & [f'protocol_id={p_id}' for p_id in p_ids]
     ex_ids = eb_q.fetch('experiment_id')
+    ex_ids = np.unique(ex_ids)
 
     # Join Experiment, EpochGroup, Protocol
     ex_q = schema.Experiment() & [f'id={ex_id}' for ex_id in ex_ids]
