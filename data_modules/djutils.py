@@ -129,18 +129,22 @@ def mea_meta_from_protocols(ls_protocol_names):
     p_q = p_q.proj('protocol_id', protocol_name='name')
 
     # Query EpochGroup with these protocol IDs, get associated experiment IDs
-    eg_q = schema.EpochGroup() & [f'protocol_id={p_id}' for p_id in p_ids]
-    ex_ids = eg_q.fetch('experiment_id')
+    # This causes bug because of no_group_protocol ID in EpochGroup. Use EpochBlock instead
+    # eg_q = schema.EpochGroup() & [f'protocol_id={p_id}' for p_id in p_ids]
+    # ex_ids = eg_q.fetch('experiment_id')
+    eb_q = schema.EpochBlock() & [f'protocol_id={p_id}' for p_id in p_ids]
+    ex_ids = eb_q.fetch('experiment_id')
 
     # Join Experiment, EpochGroup, Protocol
     ex_q = schema.Experiment() & [f'id={ex_id}' for ex_id in ex_ids]
     ex_q = ex_q.proj('exp_name', 'is_mea', experiment_id='id')
+    eg_q = schema.EpochGroup() & [f'experiment_id={ex_id}' for ex_id in ex_ids]
     eg_q = eg_q.proj('experiment_id', group_label='label', group_id='id')
     eg_q = p_q * eg_q
     eg_q = eg_q * ex_q
 
     # Join with EpochBlock
-    eb_q = eg_q * schema.EpochBlock.proj('chunk_id', 'data_dir',
+    eb_q = eg_q * schema.EpochBlock.proj('chunk_id', 'data_dir', 'protocol_id',
                                          group_id='parent_id', block_id='id')
     
     # Join with SortingChunk and fetch
