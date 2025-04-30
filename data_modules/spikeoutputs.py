@@ -418,7 +418,7 @@ class SpikeOutputs(object):
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
 
     def load_spike_times(self, str_protocol, ls_param_names, 
-                         bin_rate=100.0, isi_bin_edges=np.linspace(0, 300, 601),
+                         bin_rate=1000.0, isi_bin_edges=np.linspace(0, 300, 601),
                          b_load_isi=True, ls_filenames=None):
         """
         Load spike times and associated parameters for a given protocol.
