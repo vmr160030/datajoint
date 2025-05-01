@@ -68,6 +68,9 @@ class SpikeOutputs(object):
         self.isi = {}
 
         self.ARR_CELL_IDS = np.array([], dtype=int)
+        self.GOOD_CELL_IDS = np.array([], dtype=int)
+        self.N_CELLS = 0
+        self.N_GOOD_CELLS = 0
 
         # Load classifications if provided
         if str_classification is not None:
@@ -418,7 +421,7 @@ class SpikeOutputs(object):
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
 
     def load_spike_times(self, str_protocol, ls_param_names, 
-                         bin_rate=1000.0, isi_bin_edges=np.linspace(0, 300, 601),
+                         time_unit_s=1/1000.0, isi_bin_edges=np.linspace(0, 300, 601),
                          b_load_isi=True, ls_filenames=None):
         """
         Load spike times and associated parameters for a given protocol.
@@ -442,13 +445,13 @@ class SpikeOutputs(object):
         spike_times, cluster_id, params, unique_params, pre_pts, stim_pts, tail_pts = c_data.get_spike_times_and_parameters(
             protocolStr=str_protocol, groupStr=None, param_names=ls_param_names, 
             sort_algorithm=self.str_algo, file_name=self.ls_filenames, 
-            bin_rate=bin_rate, sample_rate=20000)
+            time_unit_s=time_unit_s, sample_rate=20000)
     
         params = dict_list_to_array(params)
         unique_params = dict_list_to_array(unique_params)
     
         n_epochs = spike_times.shape[1]
-        n_bin_dt = 1 / bin_rate * 1000  # in ms
+        n_dt_ms = time_unit_s * 1000 # in ms
     
         # Check that pre_pts, stim_pts, tail_pts all have a uniform value
         for pts in [pre_pts, stim_pts, tail_pts]:
@@ -462,10 +465,10 @@ class SpikeOutputs(object):
     
         self.stim = {'params': params, 'unique_params': unique_params, 
                      'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
-                     'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
+                     'n_total_pts': n_total_pts, 'bin_rate': 1/time_unit_s, 'n_dt_ms': n_dt_ms,
                      'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
-        self.spikes = {'spike_dict': spike_times, 'cluster_id': cluster_id, 
-                       'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt}
+        self.spikes = {'spike_times': spike_times, 'cluster_id': cluster_id, 
+                       'bin_rate': 1/time_unit_s, 'n_dt_ms': n_dt_ms}
     
         ids = np.array(cluster_id).astype(int)
         self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
