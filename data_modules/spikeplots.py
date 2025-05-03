@@ -136,7 +136,7 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
 def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
                     ls_colors = sns.color_palette(), axs=None, ls_facecolors=None, alpha=0.6,
                     b_ticks_off=True, ls_RGC_labels=None, d_IDs=None,
-                    b_zoom=False, sd_mult=0.8, scaling=None, n_scalebar=100):
+                    b_zoom=False, sd_mult=0.8, scaling=None, n_scalebar=100, lw=1):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
@@ -147,6 +147,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
     ncols = len(ls_RGC_keys)
     if axs is None:
         f, axs = plt.subplots(ncols=ncols, figsize=(ncols*8, 5), sharey=True, sharex=True)
+        f.patch.set_facecolor('none')
         # f.patch.set_facecolor('none')
         # f.text(0.1, 0.98, data.str_experiment, fontsize=12)
 
@@ -171,7 +172,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
         
         ax = axs[i]
         _, ells = plot_rfs(data, ls_cells, ell_color=ls_colors[i], facecolor=ls_facecolors[i], 
-                           ax=ax, alpha=alpha, b_zoom=b_zoom, sd_mult=sd_mult, SCALING=scaling)
+                           ax=ax, alpha=alpha, b_zoom=b_zoom, sd_mult=sd_mult, SCALING=scaling, lw=lw)
         ax.set_title(ls_label+f' (n={len(ls_cells)}) RFs')
 
         # Get current axis limits
@@ -210,7 +211,8 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
 
 def plot_type_tc(data: so.SpikeOutputs, str_RGC_key=None,
                   ax=None, ls_colors = None, alpha=0.6, b_plot_mean=True, 
-                  str_RGC_label=None, lw=1, n_dt = 1/120*1e3):
+                  str_RGC_label=None, lw=1, n_dt = 1/120*1e3,
+                  b_plot_blue=True):
 
     # Plot time courses
     if ax is None:
@@ -244,18 +246,20 @@ def plot_type_tc(data: so.SpikeOutputs, str_RGC_key=None,
         ax.fill_between(x, 
                             mean-std, mean+std, alpha=alpha, color=ls_colors[0])
 
-        tcs = np.array([data.d_sta[n_ID]['BlueTimeCourse'] for n_ID in ls_cells])
+        if b_plot_blue:
+            tcs = np.array([data.d_sta[n_ID]['BlueTimeCourse'] for n_ID in ls_cells])
 
-        mean = np.mean(tcs, axis=0)
-        std = np.std(tcs, axis=0)
-        ax.plot(x, mean, c=ls_colors[1], linewidth=lw)
-        ax.fill_between(x,
-                            mean-std, mean+std, alpha=alpha, color=ls_colors[1])
+            mean = np.mean(tcs, axis=0)
+            std = np.std(tcs, axis=0)
+            ax.plot(x, mean, c=ls_colors[1], linewidth=lw)
+            ax.fill_between(x,
+                                mean-std, mean+std, alpha=alpha, color=ls_colors[1])
 
     else:    
         for n_ID in ls_cells:
             ax.plot(x, data.d_sta[n_ID]['RedTimeCourse'], c=ls_colors[0], alpha=alpha, linewidth=lw)
-            ax.plot(x, data.d_sta[n_ID]['BlueTimeCourse'], c=ls_colors[1], alpha=alpha, linewidth=lw)
+            if b_plot_blue:
+                ax.plot(x, data.d_sta[n_ID]['BlueTimeCourse'], c=ls_colors[1], alpha=alpha, linewidth=lw)
 
     
     ax.set_title(str_label+f' (n={len(ls_cells)}) timecourses')
@@ -274,7 +278,8 @@ def plot_type_tc(data: so.SpikeOutputs, str_RGC_key=None,
 
 def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
                   axs=None, ls_colors = None, alpha=0.6, b_plot_mean=True, 
-                  ls_RGC_labels=None, lw=1, d_IDs=None, n_dt = 1/120*1e3):
+                  ls_RGC_labels=None, lw=1, d_IDs=None, n_dt = 1/120*1e3,
+                  b_plot_blue=True):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
@@ -300,12 +305,14 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
 
     for i, str_key in enumerate(ls_RGC_keys):
         plot_type_tc(data, str_RGC_key=str_key, ax=axs[i], ls_colors=ls_colors[i], alpha=alpha,
-                      b_plot_mean=b_plot_mean, str_RGC_label=ls_RGC_labels[i], lw=lw, n_dt=n_dt)
+                      b_plot_mean=b_plot_mean, str_RGC_label=ls_RGC_labels[i], lw=lw, n_dt=n_dt,
+                      b_plot_blue=b_plot_blue)
 
     axs[0].set_ylabel('STA (a.u.)')
     # Set axs and figure bg transparent
     for ax in axs:
         ax.set_facecolor('none')
+        f.patch.set_facecolor('none')
         ax.grid(True)
     
     return axs
