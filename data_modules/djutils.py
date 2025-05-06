@@ -4,9 +4,13 @@ import pandas as pd
 import sys
 import spikeoutputs as so
 import spikeplots as sp
+import h5py
+import spike_detector as spdet
+from collections import namedtuple
 sys.path.append('/Users/riekelabbackup/Desktop/Vyom/gitrepos/samarjit_datajoint/next-app/api/')
 import schema
 from helpers.utils import NAS_ANALYSIS_DIR
+from IPython.display import display
 
 
 def add_param_column(df: pd.DataFrame, param: str, col: str='epoch_parameters'):
@@ -107,8 +111,107 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
     # Move cell type column to the front
     ls_order = ['cell_type'] + [col for col in df.columns if col != 'cell_type']
     df = df[ls_order]
+
+    # Print summary of cell type, cell ID, protocol, and number of epochs
+    df_summary = df.groupby(['cell_type', 'cell_id', 'protocol_name']).agg({'epoch_id': 'count'}).reset_index()
+    df_summary = df_summary.rename(columns={'epoch_id': 'num_epochs'})
+    # For protocol name, split by '.' and keep last part
+    df_summary['protocol_name'] = df_summary['protocol_name'].apply(lambda x: x.split('.')[-1])
+    # display(df_summary)
     
-    return df
+    return df, df_summary
+
+def construct_patch_data(df: pd.DataFrame, str_protocol: str, 
+                         cell_id: int, ls_params: list, str_h5: str):
+    """Given a dataframe of epoch data, a protocol name, cell id, and a list of parameters,
+    return a named tuple:
+        - data: [n_trials, n_samples]
+        - spikes: [n_trials, [n_sps]]
+        - stim_spikes: [n_trials]
+        - params: dictionary of parameters {str_param: [n_trials]}
+        - u_params: dictionary of unique parameters {str_param: [unique values]}
+     """
+    df_stim = df[df['device_name']=='Amp1']
+    df_stim = df_stim[df_stim['protocol_name'].str.contains(str_protocol)]
+    df_stim = df_stim[df_stim['cell_id']==cell_id]
+    df_stim = df_stim.reset_index(drop=True)
+    print(f'Found {len(df_stim)} trials for {str_protocol} and cell {cell_id}')
+
+    # Add param columns
+    for param in ls_params:
+        df_stim = add_param_column(df_stim, param, col='epoch_parameters')
+    df_stim = add_param_column(df_stim, 'preTime', col='epoch_parameters')
+    df_stim = add_param_column(df_stim, 'stimTime', col='epoch_parameters')
+    df_stim = add_param_column(df_stim, 'tailTime', col='epoch_parameters')
+    
+    # Collect h5paths
+    h5paths = df_stim['h5path'].values
+    
+    # Collect data
+    data = []
+    with h5py.File(str_h5, 'r') as f:
+        for h5path in h5paths:
+            trace = f[h5path]['data']['quantity']
+            data.append(trace)
+    data = np.array(data)
+    print(f'Shape of data: {data.shape}')
+    print('Detecting spikes...')
+    sample_rate = df_stim['sample_rate'].values[0]
+    sample_rate = float(sample_rate)
+    print(f'Sample rate: {sample_rate} Hz')
+    spikes, amps, refs = spdet.detector(data, sample_rate=sample_rate)
+
+    # Compute stim_spikes, which is number of spikes in each trial in the stim window
+    stim_spikes = []
+    for idx in df_stim.index:
+        pre_time = df_stim.loc[idx, 'preTime']
+        stim_time = df_stim.loc[idx, 'stimTime']
+        tail_time = df_stim.loc[idx, 'tailTime']
+        onset_time = pre_time
+        offset_time = pre_time + stim_time
+        # Convert from ms to samples
+        onset_time = int(onset_time * sample_rate / 1000)
+        offset_time = int(offset_time * sample_rate / 1000)
+        # Get spikes in this time window
+        ss = spikes[idx]
+        ss = ss[(ss >= onset_time) & (ss <= offset_time)]
+        
+        stim_spikes.append(len(ss))
+    stim_spikes = np.array(stim_spikes)
+    print(f'Shape of stim_spikes: {stim_spikes.shape}')
+
+    # Make parameter dictionary
+    d_params = {}
+    for param in ls_params:
+        d_params[param] = df_stim[param].values
+    d_params['preTime'] = df_stim['preTime'].values
+    d_params['stimTime'] = df_stim['stimTime'].values
+    d_params['tailTime'] = df_stim['tailTime'].values
+
+    # Make unique parameter dictionary
+    d_u_params = {}
+    for param in ls_params:
+        d_u_params[param] = np.unique(df_stim[param].values)
+    d_u_params['preTime'] = np.unique(df_stim['preTime'].values)
+    d_u_params['stimTime'] = np.unique(df_stim['stimTime'].values)
+    d_u_params['tailTime'] = np.unique(df_stim['tailTime'].values)
+
+    # Construct named tuple
+    # output = {}
+    # output['data'] = data
+    # output['spikes'] = spikes
+    # output['stim_spikes'] = stim_spikes
+    # output['params'] = d_params
+    # output['u_params'] = d_u_params
+    output = namedtuple('output', ['data', 'spikes', 'stim_spikes', 'params', 'u_params'])
+    output.data = data
+    output.spikes = spikes
+    output.stim_spikes = stim_spikes
+    output.params = d_params
+    output.u_params = d_u_params
+    return output
+
+
 
 
 def search_protocol(str_search: str):
