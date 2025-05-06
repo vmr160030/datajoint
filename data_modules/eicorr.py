@@ -319,7 +319,7 @@ def get_match_IDs(mapper: MapAcrossChunk, data: so.SpikeOutputs, ls_types: list,
 
 def save_and_remap_typing_data(str_new_class_txt: str, str_mapping_txt: str, 
                                mapper: MapAcrossChunk, data: so.SpikeOutputs,
-                       ls_types: list, n_thresh: float=0.8):
+                               ls_types: list, n_thresh: float=0.8):
     d_match_IDs, arr_matches = get_match_IDs(mapper, data, ls_types, n_thresh)
     np.savetxt(str_new_class_txt, arr_matches, fmt='%s', delimiter='  ')
     print(f'Saved matched typing file to {str_new_class_txt}')
