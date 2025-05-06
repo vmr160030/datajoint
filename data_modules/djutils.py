@@ -131,11 +131,15 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
         - params: dictionary of parameters {str_param: [n_trials]}
         - u_params: dictionary of unique parameters {str_param: [unique values]}
      """
-    df_stim = df[df['device_name']=='Amp1']
-    df_stim = df_stim[df_stim['protocol_name'].str.contains(str_protocol)]
-    df_stim = df_stim[df_stim['cell_id']==cell_id]
+    df_q = df[df['protocol_name'].str.contains(str_protocol)]
+    df_q = df_q[df_q['cell_id']==cell_id]
+    df_stim = df_q[df_q['device_name']=='Amp1']
     df_stim = df_stim.reset_index(drop=True)
     print(f'Found {len(df_stim)} trials for {str_protocol} and cell {cell_id}')
+
+    # Get frame monitor data
+    df_frame = df_q[df_q['device_name']=='Frame Monitor']
+    df_frame = df_frame.reset_index(drop=True)
 
     # Add param columns
     for param in ls_params:
@@ -145,21 +149,53 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     df_stim = add_param_column(df_stim, 'tailTime', col='epoch_parameters')
     
     # Collect h5paths
-    h5paths = df_stim['h5path'].values
+    amp_h5paths = df_stim['h5path'].values
+    frame_h5paths = df_frame['h5path'].values
     
     # Collect data
-    data = []
+    amp_data = []
+    frame_data = []
     with h5py.File(str_h5, 'r') as f:
-        for h5path in h5paths:
+        for h5path in amp_h5paths:
             trace = f[h5path]['data']['quantity']
-            data.append(trace)
-    data = np.array(data)
-    print(f'Shape of data: {data.shape}')
+            amp_data.append(trace)
+        
+        for h5path in frame_h5paths:
+            trace = f[h5path]['data']['quantity']
+            frame_data.append(trace)
+    
+    amp_data = np.array(amp_data)
+    frame_data = np.array(frame_data)
+    print(f'Shape of data: Amp1: {amp_data.shape}, Frame Monitor: {frame_data.shape}')
     print('Detecting spikes...')
-    sample_rate = df_stim['sample_rate'].values[0]
-    sample_rate = float(sample_rate)
-    print(f'Sample rate: {sample_rate} Hz')
-    spikes, amps, refs = spdet.detector(data, sample_rate=sample_rate)
+    sample_rate = df_stim['sample_rate'].unique()
+    assert len(sample_rate) == 1, 'Multiple sample rates found in Amp1 data'
+    sample_rate = float(sample_rate[0])
+    f_sample_rate = df_frame['sample_rate'].unique()
+    assert len(f_sample_rate) == 1, 'Multiple sample rates found in Frame Monitor data'
+    f_sample_rate = float(f_sample_rate[0])
+    print(f'Sample rate: Amp1: {sample_rate} Hz, Frame Monitor: {f_sample_rate} Hz')
+    spikes, amps, refs = spdet.detector(amp_data, sample_rate=sample_rate)
+
+    print('Detecting frame flips...')
+    frame_times = []
+    for idx in df_frame.index:
+        trace = frame_data[idx]
+        mean = np.mean(trace)
+        crossings = np.where(np.diff(np.sign(trace - mean)))[0]
+        frame_times.append(crossings)
+    
+    # Compute avg frame rate
+    frame_rates = []
+    for idx in df_frame.index:
+        crossings = frame_times[idx]
+        if len(crossings) > 1:
+            frame_rate = 1 / np.mean(np.diff(crossings)) * f_sample_rate
+            frame_rates.append(frame_rate)
+        else:
+            frame_rates.append(0)
+    frame_rates = np.array(frame_rates)
+    print(f'Frame rates: {frame_rates}')
 
     # Compute stim_spikes, which is number of spikes in each trial in the stim window
     stim_spikes = []
@@ -198,14 +234,17 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
 
     # Construct named tuple
     # output = {}
-    # output['data'] = data
-    # output['spikes'] = spikes
-    # output['stim_spikes'] = stim_spikes
-    # output['params'] = d_params
-    # output['u_params'] = d_u_params
-    output = namedtuple('output', ['data', 'spikes', 'stim_spikes', 'params', 'u_params'])
-    output.data = data
+    output = namedtuple('output', ['data', 'frame_data', 'frame_times', 'frame_rates',
+                                    'sample_rate', 'spikes', 'spike_amps', 'spike_refs',
+                                    'stim_spikes', 'params', 'u_params'])
+    output.data = amp_data
+    output.frame_data = frame_data
+    output.frame_times = frame_times
+    output.frame_rates = frame_rates
+    output.sample_rate = sample_rate
     output.spikes = spikes
+    output.spike_amps = amps
+    output.spike_refs = refs
     output.stim_spikes = stim_spikes
     output.params = d_params
     output.u_params = d_u_params
