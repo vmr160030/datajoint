@@ -122,14 +122,10 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
     return df, df_summary
 
 def construct_patch_data(df: pd.DataFrame, str_protocol: str, 
-                         cell_id: int, ls_params: list, str_h5: str):
+                         cell_id: int, ls_params: list, str_h5: str,
+                         b_spiking: bool=True):
     """Given a dataframe of epoch data, a protocol name, cell id, and a list of parameters,
-    return a named tuple:
-        - data: [n_trials, n_samples]
-        - spikes: [n_trials, [n_sps]]
-        - stim_spikes: [n_trials]
-        - params: dictionary of parameters {str_param: [n_trials]}
-        - u_params: dictionary of unique parameters {str_param: [unique values]}
+    return a named tuple encapsulating data.
      """
     df_q = df[df['protocol_name'].str.contains(str_protocol)]
     df_q = df_q[df_q['cell_id']==cell_id]
@@ -167,7 +163,6 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     amp_data = np.array(amp_data)
     frame_data = np.array(frame_data)
     print(f'Shape of data: Amp1: {amp_data.shape}, Frame Monitor: {frame_data.shape}')
-    print('Detecting spikes...')
     sample_rate = df_stim['sample_rate'].unique()
     assert len(sample_rate) == 1, 'Multiple sample rates found in Amp1 data'
     sample_rate = float(sample_rate[0])
@@ -175,7 +170,10 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     assert len(f_sample_rate) == 1, 'Multiple sample rates found in Frame Monitor data'
     f_sample_rate = float(f_sample_rate[0])
     print(f'Sample rate: Amp1: {sample_rate} Hz, Frame Monitor: {f_sample_rate} Hz')
-    spikes, amps, refs = spdet.detector(amp_data, sample_rate=sample_rate)
+
+    if b_spiking:
+        print('Detecting spikes...')
+        spikes, amps, refs = spdet.detector(amp_data, sample_rate=sample_rate)
 
     print('Detecting frame flips...')
     frame_times = []
@@ -195,26 +193,27 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
         else:
             frame_rates.append(0)
     frame_rates = np.array(frame_rates)
-    print(f'Frame rates: {frame_rates}')
+    print(f'Found unique frame rates: {np.unique(frame_rates)}')
 
-    # Compute stim_spikes, which is number of spikes in each trial in the stim window
-    stim_spikes = []
-    for idx in df_stim.index:
-        pre_time = df_stim.loc[idx, 'preTime']
-        stim_time = df_stim.loc[idx, 'stimTime']
-        tail_time = df_stim.loc[idx, 'tailTime']
-        onset_time = pre_time
-        offset_time = pre_time + stim_time
-        # Convert from ms to samples
-        onset_time = int(onset_time * sample_rate / 1000)
-        offset_time = int(offset_time * sample_rate / 1000)
-        # Get spikes in this time window
-        ss = spikes[idx]
-        ss = ss[(ss >= onset_time) & (ss <= offset_time)]
-        
-        stim_spikes.append(len(ss))
-    stim_spikes = np.array(stim_spikes)
-    print(f'Shape of stim_spikes: {stim_spikes.shape}')
+    if b_spiking:
+        # Compute stim_spikes, which is number of spikes in each trial in the stim window
+        stim_spikes = []
+        for idx in df_stim.index:
+            pre_time = df_stim.loc[idx, 'preTime']
+            stim_time = df_stim.loc[idx, 'stimTime']
+            tail_time = df_stim.loc[idx, 'tailTime']
+            onset_time = pre_time
+            offset_time = pre_time + stim_time
+            # Convert from ms to samples
+            onset_time = int(onset_time * sample_rate / 1000)
+            offset_time = int(offset_time * sample_rate / 1000)
+            # Get spikes in this time window
+            ss = spikes[idx]
+            ss = ss[(ss >= onset_time) & (ss <= offset_time)]
+            
+            stim_spikes.append(len(ss))
+        stim_spikes = np.array(stim_spikes)
+        print(f'Shape of stim_spikes: {stim_spikes.shape}')
 
     # Make parameter dictionary
     d_params = {}
@@ -234,20 +233,26 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
 
     # Construct named tuple
     # output = {}
-    output = namedtuple('output', ['data', 'frame_data', 'frame_times', 'frame_rates',
-                                    'sample_rate', 'spikes', 'spike_amps', 'spike_refs',
-                                    'stim_spikes', 'params', 'u_params'])
+    ls_fields = ['data', 'frame_data', 'frame_times', 'frame_rates', 
+    'sample_rate','params', 'u_params']
+    if b_spiking:
+        ls_fields += ['spikes', 'spike_amps', 'spike_refs', 'stim_spikes']
+    
+    output = namedtuple('output', ls_fields)
     output.data = amp_data
     output.frame_data = frame_data
     output.frame_times = frame_times
     output.frame_rates = frame_rates
     output.sample_rate = sample_rate
-    output.spikes = spikes
-    output.spike_amps = amps
-    output.spike_refs = refs
-    output.stim_spikes = stim_spikes
     output.params = d_params
     output.u_params = d_u_params
+
+    if b_spiking:
+        output.spikes = spikes
+        output.spike_amps = amps
+        output.spike_refs = refs
+        output.stim_spikes = stim_spikes
+    
     return output
 
 
