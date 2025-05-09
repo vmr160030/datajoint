@@ -3,7 +3,9 @@ from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # Import for 3D plotting
 
-def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_period=1.5e-3, search_window=1.2e-3, cutoff_frequency=500, global_polarity=False, min_peak_amplitude=0):
+def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_period=1.5e-3, search_window=1.2e-3, 
+             cutoff_frequency=500, global_polarity=False, min_peak_amplitude=0,
+             n_clusters=2, max_trial_length_s=1):
     
 
     refractory_period_dp = refractory_period * sample_rate  # datapoints
@@ -35,24 +37,48 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_per
 
         # cluster spikes
         clustering_data = np.column_stack((peak_amplitudes, rebound['Left'], rebound['Right']))
-        start_matrix = np.array([[np.median(peak_amplitudes), np.median(rebound['Left']), np.median(rebound['Right'])],
-                                  [np.max(peak_amplitudes), np.max(rebound['Left']), np.max(rebound['Right'])]])
-        kmeans = KMeans(n_clusters=2, init=start_matrix, n_init=1, max_iter=10000)
+        max_trial_length_dp = int(max_trial_length_s * sample_rate)  # Convert seconds to datapoints
+        start_matrix = np.zeros((n_clusters, 3))  # 3 columns for peak_amplitudes, rebound['Left'], rebound['Right']
+        sorted_peak_indices = np.argsort(peak_amplitudes)[::-1]  # Sort peak amplitudes in descending order
+
+        # Fill the start_matrix with representative points
+        for i in range(n_clusters):
+            if i == 0:
+                # Use median values for the first cluster
+                start_matrix[i, :] = [np.median(peak_amplitudes), np.median(rebound['Left']), np.median(rebound['Right'])]
+            else:
+                # Use progressively smaller values for subsequent clusters
+                start_matrix[i, :] = [peak_amplitudes[sorted_peak_indices[i - 1]], 
+                                    rebound['Left'][sorted_peak_indices[i - 1]], 
+                                    rebound['Right'][sorted_peak_indices[i - 1]]]
+        kmeans = KMeans(n_clusters=n_clusters, init=start_matrix, n_init=1, max_iter=10000)
 
         try:
             kmeans.fit(clustering_data)
             cluster_index = kmeans.labels_
             centroid_amplitudes = kmeans.cluster_centers_
+            print(f'Trial {tt + 1}: KMeans clustering completed successfully.')
+            # Print the cluster centers
+            # print(f'Cluster centers:\n{centroid_amplitudes}')
         except ValueError as e:
             if 'Empty cluster' in str(e):
-                kmeans = KMeans(n_clusters=2, n_init=10)
+                print(f'Trial {tt + 1}: Empty cluster detected. Using KMeans with random initialization.')
+                kmeans = KMeans(n_clusters=n_clusters, n_init=10)
                 kmeans.fit(clustering_data)
                 cluster_index = kmeans.labels_
                 centroid_amplitudes = kmeans.cluster_centers_
+            else:
+                print(f'Trial {tt + 1}: KMeans clustering failed with error: {e}')
+        # spike_cluster_index = np.argmax(centroid_amplitudes[:, 0])  # find cluster with largest peak amplitude
+        # non_spike_cluster_index = 1 - spike_cluster_index  # non-spike cluster index
+        # spike_index_logical = (cluster_index == spike_cluster_index)  # spike_ind_log is logical, length of peaks
 
-        spike_cluster_index = np.argmax(centroid_amplitudes[:, 0])  # find cluster with largest peak amplitude
-        non_spike_cluster_index = 1 - spike_cluster_index  # non-spike cluster index
-        spike_index_logical = (cluster_index == spike_cluster_index)  # spike_ind_log is logical, length of peaks
+        # Sort clusters by peak amplitude
+        # print(centroid_amplitudes[:, 0])
+        sorted_indices = np.argsort(centroid_amplitudes[:, 0])[::-1]  # Descending order
+        spike_cluster_indices = sorted_indices[:n_clusters - 1]  # Top (k-1) clusters
+        non_spike_cluster_index = sorted_indices[n_clusters - 1:]
+        spike_index_logical = np.isin(cluster_index, spike_cluster_indices)  # Logical array for spikes
 
         if min_peak_amplitude > 0:
             temp_amp = peak_amplitudes[spike_index_logical]
@@ -75,7 +101,7 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_per
             refractory_violations[tt] = np.array([])
             print(f'Trial {tt + 1}: no spikes!')
             if check_detection:
-                plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_index, non_spike_cluster_index, current_trace, spike_times[tt], refractory_violations[tt], sigF)
+                plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_indices, non_spike_cluster_index, current_trace, spike_times[tt], refractory_violations[tt], sigF)
             continue
 
         # check for refractory violations
@@ -85,7 +111,7 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_per
             print(f'Trial {tt + 1}: {ref_violations} refractory violations')
 
         if check_detection:
-            plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_index, non_spike_cluster_index, current_trace, spike_times[tt], refractory_violations[tt], sigF)
+            plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_indices, non_spike_cluster_index, current_trace, spike_times[tt], refractory_violations[tt], sigF)
 
     # if len(spike_times) == 1:  # return vector not list if only 1 trial
     #     spike_times = spike_times[0]
@@ -120,14 +146,14 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_per
 #     plt.clf()
 
 
-def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_index, non_spike_cluster_index, current_trace, spike_times, refractory_violations, sigF):
+def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_indices, non_spike_cluster_indices, current_trace, spike_times, refractory_violations, sigF):
     """
     Plot clustering data in 3D and the trace with spikes and refractory violations.
 
     Parameters:
     - peak_amplitudes: Array of peak amplitudes.
     - rebound: Dictionary with 'Left' and 'Right' rebound values.
-    - cluster_index: Cluster assignments for each peak.
+    - cluster_indices: Array of cluster indices.
     - spike_cluster_index: Index of the spike cluster.
     - non_spike_cluster_index: Index of the non-spike cluster.
     - current_trace: The signal trace being analyzed.
@@ -139,16 +165,30 @@ def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_
 
     # 3D scatter plot for clustering data
     ax1 = fig.add_subplot(1, 2, 1, projection='3d')
+    # ax1.scatter(
+    #     peak_amplitudes[cluster_index == spike_cluster_indices],
+    #     rebound['Left'][cluster_index == spike_cluster_indices],
+    #     rebound['Right'][cluster_index == spike_cluster_indices],
+    #     c='r', label='Spikes'
+    # )
+    # ax1.scatter(
+    #     peak_amplitudes[cluster_index == non_spike_cluster_indices],
+    #     rebound['Left'][cluster_index == non_spike_cluster_indices],
+    #     rebound['Right'][cluster_index == non_spike_cluster_indices],
+    #     c='k', label='Non-Spikes'
+    # )
+    ls_colors = [f'C{i}' for i in range(len(spike_cluster_indices))]
+    for i in range(len(spike_cluster_indices)):
+        ax1.scatter(
+            peak_amplitudes[cluster_index == spike_cluster_indices[i]],
+            rebound['Left'][cluster_index == spike_cluster_indices[i]],
+            rebound['Right'][cluster_index == spike_cluster_indices[i]],
+            c=ls_colors[i], label=f'Spikes {i+1}'
+        )
     ax1.scatter(
-        peak_amplitudes[cluster_index == spike_cluster_index],
-        rebound['Left'][cluster_index == spike_cluster_index],
-        rebound['Right'][cluster_index == spike_cluster_index],
-        c='r', label='Spikes'
-    )
-    ax1.scatter(
-        peak_amplitudes[cluster_index == non_spike_cluster_index],
-        rebound['Left'][cluster_index == non_spike_cluster_index],
-        rebound['Right'][cluster_index == non_spike_cluster_index],
+        peak_amplitudes[cluster_index == non_spike_cluster_indices],
+        rebound['Left'][cluster_index == non_spike_cluster_indices],
+        rebound['Right'][cluster_index == non_spike_cluster_indices],
         c='k', label='Non-Spikes'
     )
     ax1.set_xlabel('Peak Amplitude')
@@ -161,7 +201,8 @@ def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_
     # 2D plot for the trace
     ax2 = fig.add_subplot(1, 2, 2)
     ax2.plot(current_trace, 'k', label='Trace')
-    ax2.scatter(spike_times, current_trace[spike_times], c='r', label='Spikes')
+    if len(spike_times) > 0:
+        ax2.scatter(spike_times, current_trace[spike_times], c='r', label='Spikes')
     # Check if refractory violations exist before plotting
     if len(refractory_violations) > 0:
         # Print dtype of refractory_violations
