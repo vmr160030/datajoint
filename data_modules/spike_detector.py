@@ -10,6 +10,8 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_per
 
     refractory_period_dp = refractory_period * sample_rate  # datapoints
     search_window_dp = search_window * sample_rate  # datapoints
+    max_trial_length_dp = int(max_trial_length_s * sample_rate)  # Convert seconds to datapoints
+    print(f'Max trial length in data points: {max_trial_length_dp} = {max_trial_length_s} s')
 
     data_matrix = high_pass_filter(data_matrix, cutoff_frequency, 1/sample_rate)
 
@@ -31,54 +33,89 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_per
         peak_amplitudes, peak_times = get_peaks(current_trace, -1)  # -1 for negative peaks
         peak_times = peak_times[peak_amplitudes < 0]  # only negative deflections
         peak_amplitudes = np.abs(peak_amplitudes[peak_amplitudes < 0])  # only negative deflections
+        print(f'Trial {tt + 1}: Found {len(peak_amplitudes)} peaks')
 
         # get rebounds on either side of each peak
         rebound = get_rebounds(peak_times, current_trace, search_window_dp)
 
         # cluster spikes
         clustering_data = np.column_stack((peak_amplitudes, rebound['Left'], rebound['Right']))
-        max_trial_length_dp = int(max_trial_length_s * sample_rate)  # Convert seconds to datapoints
-        start_matrix = np.zeros((n_clusters, 3))  # 3 columns for peak_amplitudes, rebound['Left'], rebound['Right']
-        sorted_peak_indices = np.argsort(peak_amplitudes)[::-1]  # Sort peak amplitudes in descending order
+        
+        if len(current_trace) > max_trial_length_dp:
+            num_sections = int(np.ceil(len(current_trace) / max_trial_length_dp))
+            section_indices = np.array_split(np.arange(len(current_trace)), num_sections)
+            print(f"Trial {tt + 1}: Splitting data into {num_sections} sections for KMeans clustering.")
 
-        # Fill the start_matrix with representative points
-        for i in range(n_clusters):
-            if i == 0:
-                # Use median values for the first cluster
-                start_matrix[i, :] = [np.median(peak_amplitudes), np.median(rebound['Left']), np.median(rebound['Right'])]
-            else:
-                # Use progressively smaller values for subsequent clusters
-                start_matrix[i, :] = [peak_amplitudes[sorted_peak_indices[i - 1]], 
-                                    rebound['Left'][sorted_peak_indices[i - 1]], 
-                                    rebound['Right'][sorted_peak_indices[i - 1]]]
-        kmeans = KMeans(n_clusters=n_clusters, init=start_matrix, n_init=1, max_iter=10000)
+            cluster_index = np.zeros(len(peak_amplitudes), dtype=int)
+            
+            # Fix non-spike cluster index to k-1, and spike cluster indices to k-2
+            spike_cluster_indices = np.arange(n_clusters - 1)
+            non_spike_cluster_index = n_clusters - 1
+            spike_index_logical = np.zeros(len(peak_amplitudes), dtype=bool)
+            for section in section_indices:
+                section_mask = np.isin(peak_times, section)  # Select peaks within the current section
+                section_data = clustering_data[section_mask]
 
-        try:
-            kmeans.fit(clustering_data)
-            cluster_index = kmeans.labels_
-            centroid_amplitudes = kmeans.cluster_centers_
-            print(f'Trial {tt + 1}: KMeans clustering completed successfully.')
-            # Print the cluster centers
-            # print(f'Cluster centers:\n{centroid_amplitudes}')
-        except ValueError as e:
-            if 'Empty cluster' in str(e):
-                print(f'Trial {tt + 1}: Empty cluster detected. Using KMeans with random initialization.')
-                kmeans = KMeans(n_clusters=n_clusters, n_init=10)
+                if len(section_data) == 0:
+                    continue
+
+                # Initialize KMeans for the section
+                start_matrix = np.zeros((n_clusters, 3))
+                sorted_peak_indices = np.argsort(section_data[:, 0])[::-1]
+                for i in range(n_clusters):
+                    if i == 0:
+                        start_matrix[i, :] = [np.median(section_data[:, 0]), np.median(section_data[:, 1]), np.median(section_data[:, 2])]
+                    else:
+                        start_matrix[i, :] = section_data[sorted_peak_indices[i - 1]]
+
+                kmeans = KMeans(n_clusters=n_clusters, init=start_matrix, n_init=1, max_iter=10000)
+                try:
+                    kmeans.fit(section_data)
+                    centroid_amplitudes = kmeans.cluster_centers_
+                    # Sort clusters by peak amplitude
+                    sorted_indices = np.argsort(centroid_amplitudes[:, 0])[::-1]
+                    # For cluster_index, map kmeans.labels_ to values in sorted_indices.
+                    # So label=1 with largest peak amplitude will be 0, and so on.
+                    labels = np.zeros_like(kmeans.labels_)
+                    for i, label in enumerate(sorted_indices):
+                        labels[kmeans.labels_ == label] = i
+                    cluster_index[section_mask] = labels  # Assign cluster indices to the section
+                    spike_index_logical[section_mask] = np.isin(cluster_index[section_mask], spike_cluster_indices)  # Logical array for spikes
+                except Exception as e:
+                    print(f"Section KMeans failed with error: {e}")
+                    cluster_index[section_mask] = non_spike_cluster_index  # Assign to non-spike cluster
+                    continue
+
+
+            
+        else:
+            # Standard KMeans clustering for shorter traces
+            start_matrix = np.zeros((n_clusters, 3))
+            sorted_peak_indices = np.argsort(peak_amplitudes)[::-1]
+            for i in range(n_clusters):
+                if i == 0:
+                    start_matrix[i, :] = [np.median(peak_amplitudes), np.median(rebound['Left']), np.median(rebound['Right'])]
+                else:
+                    start_matrix[i, :] = [peak_amplitudes[sorted_peak_indices[i - 1]], rebound['Left'][sorted_peak_indices[i - 1]], rebound['Right'][sorted_peak_indices[i - 1]]]
+
+            kmeans = KMeans(n_clusters=n_clusters, init=start_matrix, n_init=1, max_iter=10000)
+            try:
                 kmeans.fit(clustering_data)
                 cluster_index = kmeans.labels_
                 centroid_amplitudes = kmeans.cluster_centers_
-            else:
-                print(f'Trial {tt + 1}: KMeans clustering failed with error: {e}')
-        # spike_cluster_index = np.argmax(centroid_amplitudes[:, 0])  # find cluster with largest peak amplitude
-        # non_spike_cluster_index = 1 - spike_cluster_index  # non-spike cluster index
-        # spike_index_logical = (cluster_index == spike_cluster_index)  # spike_ind_log is logical, length of peaks
+            except ValueError as e:
+                print(f"Trial {tt + 1}: KMeans clustering failed with error: {e}")
+                continue
+            # spike_cluster_index = np.argmax(centroid_amplitudes[:, 0])  # find cluster with largest peak amplitude
+            # non_spike_cluster_index = 1 - spike_cluster_index  # non-spike cluster index
+            # spike_index_logical = (cluster_index == spike_cluster_index)  # spike_ind_log is logical, length of peaks
 
-        # Sort clusters by peak amplitude
-        # print(centroid_amplitudes[:, 0])
-        sorted_indices = np.argsort(centroid_amplitudes[:, 0])[::-1]  # Descending order
-        spike_cluster_indices = sorted_indices[:n_clusters - 1]  # Top (k-1) clusters
-        non_spike_cluster_index = sorted_indices[n_clusters - 1:]
-        spike_index_logical = np.isin(cluster_index, spike_cluster_indices)  # Logical array for spikes
+            # Sort clusters by peak amplitude
+            # print(centroid_amplitudes.shape)
+            sorted_indices = np.argsort(centroid_amplitudes[:, 0])[::-1]  # Descending order
+            spike_cluster_indices = sorted_indices[:n_clusters - 1]  # Top (k-1) clusters
+            non_spike_cluster_index = sorted_indices[n_clusters - 1:]
+            spike_index_logical = np.isin(cluster_index, spike_cluster_indices)  # Logical array for spikes
 
         if min_peak_amplitude > 0:
             temp_amp = peak_amplitudes[spike_index_logical]
