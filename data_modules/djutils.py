@@ -123,8 +123,7 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
 
 def construct_patch_data(df: pd.DataFrame, str_protocol: str, 
                          cell_id: int, ls_params: list, str_h5: str,
-                         b_spiking: bool=True, n_spike_clusters: int=3,
-                         max_trial_length_s: float=1.0, min_peak_amplitude: float=0.0):
+                         b_spiking: bool=True, detector_kwargs: dict=None,):
     """Given a dataframe of epoch data, a protocol name, cell id, and a list of parameters,
     return a named tuple encapsulating data.
      """
@@ -174,9 +173,10 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
 
     if b_spiking:
         print('Detecting spikes...')
+        if detector_kwargs is None:
+            detector_kwargs = {}
         spikes, amps, refs = spdet.detector(amp_data, sample_rate=sample_rate, 
-                                            n_clusters=n_spike_clusters, max_trial_length_s=max_trial_length_s,
-                                            min_peak_amplitude=min_peak_amplitude)
+                                            **detector_kwargs)
 
     print('Detecting frame flips...')
     frame_times = []
