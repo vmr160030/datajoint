@@ -167,11 +167,6 @@ class SpikeOutputs(object):
                 self.d_sta_convex_hull[n_ID] = self.d_params['hull_vertices'][idx_ID, :,:]
 
             print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
-
-            if b_flip_y:
-                for n_ID in self.d_sta_spatial.keys():
-                    self.d_sta_spatial[n_ID] = self.d_sta_spatial[n_ID][::-1, :]
-                    self.d_sta_convex_hull[n_ID] = self.d_sta_convex_hull[n_ID][::-1, :]
                 
         ids = np.array(sta_cell_ids).astype(int)
         self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
@@ -445,7 +440,7 @@ class SpikeOutputs(object):
         spike_times, cluster_id, params, unique_params, pre_pts, stim_pts, tail_pts = c_data.get_spike_times_and_parameters(
             protocolStr=str_protocol, groupStr=None, param_names=ls_param_names, 
             sort_algorithm=self.str_algo, file_name=self.ls_filenames, 
-            time_unit_s=time_unit_s, sample_rate=20000)
+            bin_rate=1/time_unit_s, sample_rate=20000)
     
         params = dict_list_to_array(params)
         unique_params = dict_list_to_array(unique_params)
