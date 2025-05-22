@@ -460,11 +460,11 @@ class SpikeOutputs(object):
     
         self.stim = {'params': params, 'unique_params': unique_params, 
                      'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
-                     'n_total_pts': n_total_pts, 'bin_rate': 1/time_unit_s, 'n_dt_ms': n_dt_ms,
+                     'n_total_pts': n_total_pts, 'bin_rate': 1/time_unit_s, 'n_bin_dt': n_dt_ms,
                      'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
         self.spikes = {'spike_times': spike_times, 'cluster_id': cluster_id, 
-                       'bin_rate': 1/time_unit_s, 'n_dt_ms': n_dt_ms}
-    
+                       'bin_rate': 1/time_unit_s, 'n_bin_dt': n_dt_ms}
+
         ids = np.array(cluster_id).astype(int)
         self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
         self.GOOD_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, ids)
