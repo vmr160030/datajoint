@@ -21,7 +21,7 @@ def sort_electrode_map(electrode_map: np.ndarray) -> np.ndarray:
     electrode_map (numpy.ndarray): The electrode locations of shape (512, 2).
 
     Returns:
-    numpy.ndarray: The reshaped EI matrix of shape (16, 32, 201).
+    numpy.ndarray: Sorted indices of the electrodes (512,). 
     """
     sorted_indices = np.lexsort((electrode_map[:, 0], electrode_map[:, 1]))
     
