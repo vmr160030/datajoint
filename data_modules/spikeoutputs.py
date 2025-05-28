@@ -158,34 +158,32 @@ class SpikeOutputs(object):
             self.N_HEIGHT = 75.0 
             self.NOISE_GRID_SIZE = 30
             print(f'Using default STA info: N_WIDTH={self.N_WIDTH}, N_HEIGHT={self.N_HEIGHT}, NOISE_GRID_SIZE={self.NOISE_GRID_SIZE}.')
-        
+
+        # Load RF fit parameters from .params file
+        d_sta = {}
+        for n_id in self.vcd.main_datatable.keys():
+            # Get only IDs of cells that have RF fits
+            if 'x0' in self.vcd.main_datatable[n_id].keys():
+                d_sta[n_id] = self.vcd.main_datatable[n_id].copy()
+        self.d_sta = d_sta
+
+        # Apply flip
+        if b_flip_y:
+            for n_id in self.d_sta.keys():
+                self.d_sta[n_id]['y0'] = self.vcd.runtimemovie_params.height - self.d_sta[n_id]['y0']
+            print('Flipped y0 values, so RFs are in sta matrix space with (0,0) in top left.')
+
         # Load WN stim params for calculating any adjustment needed for STA crop.
         self.load_wn_stim_params()
 
-        # Load RF fit parameters from .params file
-        # Get only IDs of cells that have RF fits
-        print(f'Adjusting STA fit centers by {self.delta_x_checks} in X and {self.delta_y_checks} in Y.')
-        d_sta = {}
-        for n_id in self.vcd.main_datatable.keys():
-            if 'x0' in self.vcd.main_datatable[n_id].keys():
-                d_sta[n_id] = self.vcd.main_datatable[n_id].copy()
-                
-                # Adjust x0 and y0 by delta_x_checks and delta_y_checks
-                d_sta[n_id]['x0'] = d_sta[n_id]['x0'] + self.delta_x_checks
-                
-                y0 = d_sta[n_id]['y0']
-                if b_flip_y:
-                    # Flip y0 values to get in matrix space (0,0) at top left.
-                    y0 = self.vcd.runtimemovie_params.height - y0
-                y0 = y0 + self.delta_y_checks
-                
-                d_sta[n_id]['y0'] = y0
-        self.d_sta = d_sta
+        # Adjust x0 and y0 by delta_x_checks and delta_y_checks
+        print(f'Adjusting STA fit centers by {self.delta_x_checks} in X and {self.delta_y_checks} in Y to account for crop.')
+        for n_id in self.d_sta.keys():
+            self.d_sta[n_id]['x0'] += self.delta_x_checks 
+            self.d_sta[n_id]['y0'] += self.delta_y_checks 
+        
         sta_cell_ids = list(self.d_sta.keys())
         print(f'Loaded STA RF fits for {len(sta_cell_ids)} cells.')
-
-        if b_flip_y:
-            print('Flipped y0 values, so RFs are in sta matrix space with (0,0) in top left.')
 
         # Load _params.mat. 
         if paramsmatfile:
@@ -205,6 +203,7 @@ class SpikeOutputs(object):
                 # TODO: Add delta_x_checks and delta_y_checks to convex hull vertices
 
             print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
+            print('Note: Accounting for the crop is not yet implemented for the .mat params!')
                 
         ids = np.array(sta_cell_ids).astype(int)
         self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
