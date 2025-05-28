@@ -86,13 +86,15 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
 
     if SCALING is None:
         SCALING = spikeout.NOISE_GRID_SIZE
-        n_pad = 5
-        ax.set_xlim((0-n_pad)*SCALING, (spikeout.N_WIDTH+n_pad)*SCALING)
-        ax.set_ylim((0-n_pad)*SCALING, (spikeout.N_HEIGHT+n_pad)*SCALING)
-        ax.axhline(0, c='k', linewidth=1)
-        ax.axvline(0, c='k', linewidth=1)
-        ax.axhline(spikeout.N_HEIGHT*SCALING, c='k', linewidth=1)
-        ax.axvline(spikeout.N_WIDTH*SCALING, c='k', linewidth=1)
+        print(f'Setting SCALING to {SCALING} per WN check.')
+    
+    n_pad = 5
+    ax.set_xlim((0-n_pad)*SCALING, (spikeout.N_WIDTH+n_pad)*SCALING)
+    ax.set_ylim((0-n_pad)*SCALING, (spikeout.N_HEIGHT+n_pad)*SCALING)
+    ax.axhline(0, c='k', linewidth=1)
+    ax.axvline(0, c='k', linewidth=1)
+    ax.axhline(spikeout.N_HEIGHT*SCALING, c='k', linewidth=1)
+    ax.axvline(spikeout.N_WIDTH*SCALING, c='k', linewidth=1)
 
     if not ell_color:
         ell_color = np.random.rand(3)
@@ -136,7 +138,7 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
 def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
                     ls_colors = sns.color_palette(), axs=None, ls_facecolors=None, alpha=0.6,
                     b_ticks_off=True, ls_RGC_labels=None, d_IDs=None,
-                    b_zoom=False, sd_mult=0.8, scaling=None, n_scalebar=100, lw=1):
+                    b_zoom=False, sd_mult=0.8, scaling=None, b_scalebar=True, n_scalebar=100, lw=1):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
@@ -198,14 +200,15 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
         ax.set_facecolor('none')
     
 
-    # Add scalebar
-    offset = 0.08*(x1-x0)
-    for ax in axs:
-        # ax.plot([100, 100+n_scalebar], [100, 100], c='k', linewidth=2)
-        # ax.text(100+n_scalebar/2, 100-10, f'{n_scalebar} um', horizontalalignment='center')
-        ax.plot([x0+offset, x0+offset+n_scalebar], [y0+offset, y0+offset], c='k', linewidth=2)
-        ax.plot([x0+offset, x0+offset], [y0+offset, y0+offset+n_scalebar], c='k', linewidth=2)
-        ax.text(x0+offset+n_scalebar/2, y0+offset*0.9, f'{n_scalebar} um', horizontalalignment='center', verticalalignment='top')
+    if b_scalebar:
+        # Add scalebar
+        offset = 0.08*(x1-x0)
+        for ax in axs:
+            # ax.plot([100, 100+n_scalebar], [100, 100], c='k', linewidth=2)
+            # ax.text(100+n_scalebar/2, 100-10, f'{n_scalebar} um', horizontalalignment='center')
+            ax.plot([x0+offset, x0+offset+n_scalebar], [y0+offset, y0+offset], c='k', linewidth=2)
+            ax.plot([x0+offset, x0+offset], [y0+offset, y0+offset+n_scalebar], c='k', linewidth=2)
+            ax.text(x0+offset+n_scalebar/2, y0+offset*0.9, f'{n_scalebar} um', horizontalalignment='center', verticalalignment='top')
 
     return axs
 
