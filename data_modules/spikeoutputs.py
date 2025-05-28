@@ -53,7 +53,7 @@ class SpikeOutputs(object):
         self.str_noise_protocol = str_noise_protocol # TODO: better method for setting this from metadata
         if int(str_experiment[:8]) < 20230926:
             self.str_noise_protocol = 'manookinlab.protocols.FastNoise'
-
+        print(f'Assuming noise protocol is {self.str_noise_protocol}.')
         self.paramsfile = paramsfile
         if dataset_name is None:
             dataset_name = str_algo
@@ -107,9 +107,28 @@ class SpikeOutputs(object):
     def get_type_ids(self, str_type):
         return self.types.d_main_IDs[str_type]
     
+    def load_wn_stim_params(self):
+        c_data = sd.Dataset(self.str_experiment)
+        protocol = c_data.M.search_data_file(self.str_noise_protocol, file_name=self.ls_noise_filenames)
+        param_names = ['numXChecks', 'numYChecks']#, 'stixelSize', 'pre_frames', 'unique_frames', 'repeat_frames',
+        #'numXStixels', 'numYStixels']
+        params, unique_params = c_data.M.get_stimulus_parameters(protocol, param_names)
+        print(f'Found unique WN stim parameters: {unique_params}')
+        num_x_checks = int(unique_params['numXChecks'][0])
+        num_y_checks = int(unique_params['numYChecks'][0])
+        sta_height = self.N_HEIGHT
+        sta_width = self.N_WIDTH
+        delta_x_checks = int((num_x_checks - sta_width) / 2)
+        delta_y_checks = int((num_y_checks - sta_height) / 2)
+        self.N_HEIGHT = num_y_checks
+        self.N_WIDTH = num_x_checks
+        self.delta_x_checks = delta_x_checks
+        self.delta_y_checks = delta_y_checks
+        
+    
     def load_sta_from_params(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
                              isi_bin_edges=None, load_ei=False, load_neurons=True, load_sta=False,
-                             b_flip_y=False):
+                             b_flip_y=True):
         # b_flip_y is for flipping y location of RFs, to get in matrix space (0,0) at top left.
         if not paramsfile:
             paramsfile = self.paramsfile
@@ -124,23 +143,31 @@ class SpikeOutputs(object):
         self.vcd = vl.load_vision_data(analysis_path=os.path.dirname(paramsfile), dataset_name=dataset_name, 
                                        include_params=True, include_runtimemovie_params=True, include_ei=load_ei,
                                        include_neurons=load_neurons, include_sta=load_sta)
-        if load_neurons:
+        if hasattr(self.vcd, 'runtimemovie_params'):
             self.N_WIDTH = self.vcd.runtimemovie_params.width
             self.N_HEIGHT = self.vcd.runtimemovie_params.height
         
             # This is used to translate noise stixel space to microns.
             self.NOISE_GRID_SIZE = self.vcd.runtimemovie_params.micronsPerStixelX # Typically 30 microns. 
+            print(f'Found STA info: N_WIDTH={self.N_WIDTH}, N_HEIGHT={self.N_HEIGHT}, NOISE_GRID_SIZE={self.NOISE_GRID_SIZE}.')
         else:
             self.N_WIDTH = 100.0
             self.N_HEIGHT = 75.0 
             self.NOISE_GRID_SIZE = 30
+            print(f'Using default STA info: N_WIDTH={self.N_WIDTH}, N_HEIGHT={self.N_HEIGHT}, NOISE_GRID_SIZE={self.NOISE_GRID_SIZE}.')
+
+        # Load WN stim params for calculating any adjustment needed for STA crop.
+        self.load_wn_stim_params()
 
         # Load RF fit parameters from .params file
         # Get only IDs of cells that have RF fits
+        print(f'Adjusting STA fit centers by {self.delta_x_checks} in X and {self.delta_y_checks} in Y.')
         d_sta = {}
         for n_id in self.vcd.main_datatable.keys():
             if 'x0' in self.vcd.main_datatable[n_id].keys():
                 d_sta[n_id] = self.vcd.main_datatable[n_id]
+                d_sta[n_id]['x0'] = d_sta[n_id]['x0'] + self.delta_x_checks
+                d_sta[n_id]['y0'] = d_sta[n_id]['y0'] + self.delta_y_checks
         self.d_sta = d_sta
         sta_cell_ids = list(self.d_sta.keys())
         print(f'Loaded STA RF fits for {len(sta_cell_ids)} cells.')
@@ -165,6 +192,7 @@ class SpikeOutputs(object):
             self.d_sta_convex_hull = {}
             for idx_ID, n_ID in enumerate(sta_cell_ids):
                 self.d_sta_convex_hull[n_ID] = self.d_params['hull_vertices'][idx_ID, :,:]
+                # TODO: Add delta_x_checks and delta_y_checks to convex hull vertices
 
             print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
                 
@@ -178,36 +206,6 @@ class SpikeOutputs(object):
         if isi_bin_edges is not None:
             print(f'Loading WN ISI...')
             self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
-
-    # def load_sta(self, df_sta, isi_bin_edges=None):
-    #     print(f'Loading STA from datajoint')
-        
-    #     self.N_WIDTH = df_sta['noise_width'].iloc[0]
-    #     self.N_HEIGHT = df_sta['noise_height'].iloc[0]
-    #     self.NOISE_GRID_SIZE = df_sta['noise_grid_size'].iloc[0] # Typically 30 microns. 
-        
-    #     # Load RF fit parameters from datajoint
-    #     d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta',
-    #         'red_time_course': 'RedTimeCourse', 'green_time_course': 'GreenTimeCourse', 'blue_time_course': 'BlueTimeCourse'}
-    #     d_sta = {}
-    #     for n_id in df_sta.index:
-    #         d_sta[n_id] = {}
-    #         for str_df, str_vcd in d_keymap.items():
-    #             d_sta[n_id][str_vcd] = df_sta.loc[n_id, str_df]
-
-    #     self.d_sta = d_sta
-    #     sta_cell_ids = list(self.d_sta.keys())
-    #     print(f'Loaded STA for {len(sta_cell_ids)} cells.')
-                
-    #     self.ARR_CELL_IDS = np.union1d(np.array(sta_cell_ids), self.ARR_CELL_IDS)
-    #     self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
-    #     self.N_CELLS = len(self.ARR_CELL_IDS)
-    #     self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
-
-    #     # Load STA ISI
-    #     if isi_bin_edges is not None:
-    #         print(f'Loading STA ISI...')
-    #         self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
         
     def load_protocol_vcd(self, chunk_dir, dataset_name):
         """Load protocol VCD. 
