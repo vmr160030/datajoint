@@ -124,6 +124,9 @@ class SpikeOutputs(object):
         self.N_WIDTH = num_x_checks
         self.delta_x_checks = delta_x_checks
         self.delta_y_checks = delta_y_checks
+
+        # Compute pixels per stixel
+        # self.pixels_per_stixel = int(round(self.))
         
     
     def load_sta_from_params(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
@@ -155,7 +158,7 @@ class SpikeOutputs(object):
             self.N_HEIGHT = 75.0 
             self.NOISE_GRID_SIZE = 30
             print(f'Using default STA info: N_WIDTH={self.N_WIDTH}, N_HEIGHT={self.N_HEIGHT}, NOISE_GRID_SIZE={self.NOISE_GRID_SIZE}.')
-
+        
         # Load WN stim params for calculating any adjustment needed for STA crop.
         self.load_wn_stim_params()
 
@@ -165,16 +168,19 @@ class SpikeOutputs(object):
         d_sta = {}
         for n_id in self.vcd.main_datatable.keys():
             if 'x0' in self.vcd.main_datatable[n_id].keys():
-                d_sta[n_id] = self.vcd.main_datatable[n_id]
+                d_sta[n_id] = self.vcd.main_datatable[n_id].copy()
                 d_sta[n_id]['x0'] = d_sta[n_id]['x0'] + self.delta_x_checks
-                d_sta[n_id]['y0'] = d_sta[n_id]['y0'] + self.delta_y_checks
+                y0 = d_sta[n_id]['y0']
+                if b_flip_y:
+                    # Flip y0 values to get in matrix space (0,0) at top left.
+                    y0 = self.vcd.runtimemovie_params.height - y0
+                y0 = y0 + self.delta_y_checks
+                d_sta[n_id]['y0'] = y0
         self.d_sta = d_sta
         sta_cell_ids = list(self.d_sta.keys())
         print(f'Loaded STA RF fits for {len(sta_cell_ids)} cells.')
 
         if b_flip_y:
-            for n_ID in self.d_sta.keys():
-                self.d_sta[n_ID]['y0'] = self.N_HEIGHT-self.d_sta[n_ID]['y0']
             print('Flipped y0 values, so RFs are in sta matrix space with (0,0) in top left.')
 
         # Load _params.mat. 
