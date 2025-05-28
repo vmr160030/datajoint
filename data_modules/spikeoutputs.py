@@ -169,12 +169,16 @@ class SpikeOutputs(object):
         for n_id in self.vcd.main_datatable.keys():
             if 'x0' in self.vcd.main_datatable[n_id].keys():
                 d_sta[n_id] = self.vcd.main_datatable[n_id].copy()
+                
+                # Adjust x0 and y0 by delta_x_checks and delta_y_checks
                 d_sta[n_id]['x0'] = d_sta[n_id]['x0'] + self.delta_x_checks
+                
                 y0 = d_sta[n_id]['y0']
                 if b_flip_y:
                     # Flip y0 values to get in matrix space (0,0) at top left.
                     y0 = self.vcd.runtimemovie_params.height - y0
                 y0 = y0 + self.delta_y_checks
+                
                 d_sta[n_id]['y0'] = y0
         self.d_sta = d_sta
         sta_cell_ids = list(self.d_sta.keys())
