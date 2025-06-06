@@ -189,6 +189,11 @@ class SpikeOutputs(object):
         if paramsmatfile:
             print(f'Loading STA params from {paramsmatfile}...')
             self.d_params = hdf5storage.loadmat(paramsmatfile)
+
+            # Apply correction to centers? Then would need to pad the spatial maps.
+            # For now leaving that out.
+            # self.d_params['hull_parameters'][:,0] += self.delta_x_checks
+            # self.d_params['hull_parameters'][:,1] += self.delta_y_checks
                 
             # Get spatial maps of cells
             self.d_sta_spatial = {}
@@ -203,7 +208,7 @@ class SpikeOutputs(object):
                 # TODO: Add delta_x_checks and delta_y_checks to convex hull vertices
 
             print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
-            print('Note: Accounting for the crop is not yet implemented for the .mat params!')
+            print('Note: Accounting for the crop is not applied for the .mat params!')
                 
         ids = np.array(sta_cell_ids).astype(int)
         self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
@@ -309,11 +314,11 @@ class SpikeOutputs(object):
             # Multiple Sp/s by bin_dt in s to get total spikes
             spike_counts[idx] = np.sum(spike_dict[n_id]) * n_bin_dt / 1000
 
-        self.stim = {'params': params, 'unique_params': unique_params, 
+        self.stim['psth'] = {'params': params, 'unique_params': unique_params, 
              'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
              'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
              'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
-        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
+        self.spikes['psth'] =  {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
                        'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
                        'total_spike_counts': spike_counts}
         
@@ -407,11 +412,11 @@ class SpikeOutputs(object):
                 fr = spike_dict[n_id][n_epoch]
                 psth[n_epoch, idx, :] = fr[:n_total_pts]
 
-        self.stim = {'params': params, 'unique_params': unique_params, 
+        self.stim['psth_fr'] = {'params': params, 'unique_params': unique_params, 
                 'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
                 'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
                 'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
-        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
+        self.spikes['psth_fr'] = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
                         'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
                         'total_spike_counts': total_sc, 'psth': psth}
         
@@ -465,11 +470,11 @@ class SpikeOutputs(object):
         n_tail_pts = int(tail_pts[0])
         n_total_pts = n_pre_pts + n_stim_pts + n_tail_pts
     
-        self.stim = {'params': params, 'unique_params': unique_params, 
+        self.stim['spike_times'] = {'params': params, 'unique_params': unique_params, 
                      'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
                      'n_total_pts': n_total_pts, 'bin_rate': 1/time_unit_s, 'n_bin_dt': n_dt_ms,
                      'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
-        self.spikes = {'spike_times': spike_times, 'cluster_id': cluster_id, 
+        self.spikes['spike_times'] = {'spike_times': spike_times, 'cluster_id': cluster_id, 
                        'bin_rate': 1/time_unit_s, 'n_bin_dt': n_dt_ms}
 
         ids = np.array(cluster_id).astype(int)

@@ -194,7 +194,7 @@ def find_dup_thresh(data: so.SpikeOutputs, str_type: str, arr_thresh=np.arange(2
 
 
 class QC(object):
-    def __init__(self, data: so.SpikeOutputs, b_noise_only: bool=False,
+    def __init__(self, data: so.SpikeOutputs, sp_key: str, b_noise_only: bool=False,
                  n_refractory_period: float= 1.5 # ms
                  ):
         self.data = data
@@ -267,12 +267,13 @@ class QC(object):
 
         # Get protocol data
         if not b_noise_only:
-            self.protocol_ids = np.array(data.spikes['cluster_id'])
+            print('here')
+            self.protocol_ids = np.array(data.spikes[sp_key]['cluster_id'])
             for n_ID in self.df_qc.index:
                 # Check if n_ID in data.spikes['cluster_id']
                 if n_ID in self.protocol_ids:
-                    n_idx = np.argwhere(data.spikes['cluster_id'] == n_ID)[0][0]
-                    ls_protocolspikes.append(data.spikes['total_spike_counts'][n_idx])
+                    n_idx = np.argwhere(data.spikes[sp_key]['cluster_id'] == n_ID)[0][0]
+                    ls_protocolspikes.append(data.spikes[sp_key]['total_spike_counts'][n_idx])
                 else:
                     ls_protocolspikes.append(0)
             self.df_qc['protocol_spikes'] = ls_protocolspikes
