@@ -166,10 +166,13 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     sample_rate = df_stim['sample_rate'].unique()
     assert len(sample_rate) == 1, 'Multiple sample rates found in Amp1 data'
     sample_rate = float(sample_rate[0])
-    f_sample_rate = df_frame['sample_rate'].unique()
-    assert len(f_sample_rate) == 1, 'Multiple sample rates found in Frame Monitor data'
-    f_sample_rate = float(f_sample_rate[0])
-    print(f'Sample rate: Amp1: {sample_rate} Hz, Frame Monitor: {f_sample_rate} Hz')
+    f_sample_rates = df_frame['sample_rate'].unique()
+    if len(f_sample_rates) != 1:
+        print('Multiple sample rates found in Frame Monitor data:')
+        print(f_sample_rates)
+    else:
+        print(f'Single sample rate found in Frame Monitor data: {f_sample_rates[0]} Hz')
+    print(f'Sample rate: Amp1: {sample_rate} Hz')
 
     if b_spiking:
         print('Detecting spikes...')
@@ -191,7 +194,7 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     for idx in df_frame.index:
         crossings = frame_times[idx]
         if len(crossings) > 1:
-            frame_rate = 1 / np.mean(np.diff(crossings)) * f_sample_rate
+            frame_rate = 1 / np.mean(np.diff(crossings)) * float(df_frame.at[idx, 'sample_rate'])
             frame_rates.append(frame_rate)
         else:
             frame_rates.append(0)

@@ -198,6 +198,7 @@ class SpikeOutputs(object):
             # Get spatial maps of cells
             self.d_sta_spatial = {}
             for idx_ID, n_ID in enumerate(sta_cell_ids):
+                # TODO pad spatial maps to match N_HEIGHT and N_WIDTH
                 # Load red channel spatial map. Cell ID index in vcd should be same as in _params.mat
                 self.d_sta_spatial[n_ID] = self.d_params['spatial_maps'][idx_ID, :, :, 0]
             
