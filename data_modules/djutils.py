@@ -144,8 +144,9 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
 
 def construct_patch_data(df: pd.DataFrame, str_protocol: str, 
                          cell_id: int, ls_params: list, str_h5: str,
-                         b_spiking: bool=True, detector_kwargs: dict=None,
-                         b_load_stim: bool=False):
+                         b_spiking: bool=True, 
+                         b_load_stim: bool=False,
+                         **detector_kwargs):
     """Given a dataframe of epoch data, a protocol name, cell id, and a list of parameters,
     return a named tuple encapsulating data.
      """
@@ -165,6 +166,7 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     df_stim = add_param_column(df_stim, 'preTime', col='epoch_parameters')
     df_stim = add_param_column(df_stim, 'stimTime', col='epoch_parameters')
     df_stim = add_param_column(df_stim, 'tailTime', col='epoch_parameters')
+    df_stim = add_param_column(df_stim, 'frameRate', col='epoch_parameters')
     
     # Collect h5paths
     amp_h5paths = df_stim['h5path'].values
@@ -218,8 +220,6 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
 
     if b_spiking:
         print('Detecting spikes...')
-        if detector_kwargs is None:
-            detector_kwargs = {}
         spikes, amps, refs = spdet.detector(amp_data, sample_rate=sample_rate, 
                                             **detector_kwargs)
 
@@ -270,6 +270,8 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     d_params['preTime'] = df_stim['preTime'].values
     d_params['stimTime'] = df_stim['stimTime'].values
     d_params['tailTime'] = df_stim['tailTime'].values
+    d_params['stage_frame_rate'] = df_stim['frameRate'].values[0]
+    print(f'Found stage frame rate: {d_params["stage_frame_rate"]} Hz')
 
     # Make unique parameter dictionary
     d_u_params = {}
@@ -278,6 +280,7 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     d_u_params['preTime'] = np.unique(df_stim['preTime'].values)
     d_u_params['stimTime'] = np.unique(df_stim['stimTime'].values)
     d_u_params['tailTime'] = np.unique(df_stim['tailTime'].values)
+    d_u_params['stage_frame_rate'] = np.unique(df_stim['frameRate'].values)
 
     # Construct named tuple
     # output = {}
