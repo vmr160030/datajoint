@@ -144,7 +144,8 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
 
 def construct_patch_data(df: pd.DataFrame, str_protocol: str, 
                          cell_id: int, ls_params: list, str_h5: str,
-                         b_spiking: bool=True, detector_kwargs: dict=None,):
+                         b_spiking: bool=True, detector_kwargs: dict=None,
+                         b_load_stim: bool=False):
     """Given a dataframe of epoch data, a protocol name, cell id, and a list of parameters,
     return a named tuple encapsulating data.
      """
@@ -168,6 +169,10 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     # Collect h5paths
     amp_h5paths = df_stim['h5path'].values
     frame_h5paths = df_frame['h5path'].values
+    if b_load_stim:
+        # Load stim h5paths from stimulus device
+        stim_h5paths = df_stim['stim_h5path'].values
+        stim_data = []
     
     # Collect data
     amp_data = []
@@ -180,10 +185,26 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
         for h5path in frame_h5paths:
             trace = f[h5path]['data']['quantity']
             frame_data.append(trace)
+
+        if b_load_stim:
+            try:
+                for h5path in stim_h5paths:
+                    trace = f[h5path]['data']['quantity']
+                    stim_data.append(trace)
+            except Exception as e:
+                print(f'Error loading stim data: {e}')
+                b_load_stim = False
+                stim_data = None
     
     amp_data = np.array(amp_data)
     frame_data = np.array(frame_data)
     print(f'Shape of data: Amp1: {amp_data.shape}, Frame Monitor: {frame_data.shape}')
+    if b_load_stim:
+        stim_data = np.array(stim_data)
+        print(f'Shape of stim data: {stim_data.shape}')
+    else:
+        stim_data = None
+
     sample_rate = df_stim['sample_rate'].unique()
     assert len(sample_rate) == 1, 'Multiple sample rates found in Amp1 data'
     sample_rate = float(sample_rate[0])
@@ -270,6 +291,7 @@ def construct_patch_data(df: pd.DataFrame, str_protocol: str,
     output.frame_data = frame_data
     output.frame_times = frame_times
     output.frame_rates = frame_rates
+    output.stim_data = stim_data
     output.sample_rate = sample_rate
     output.params = d_params
     output.u_params = d_u_params
