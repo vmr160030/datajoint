@@ -72,7 +72,16 @@ def mea_exp_summary(exp_name: str):
     return df
 
 def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
-    # # Given experiment id, get epoch data with epoch group labels
+    """
+    Given experiment id, get dataframe of epoch metadata.
+    Arguments:
+    - exp_name: name of the experiment
+    - ls_params: list of parameters to extract from epoch_parameters column
+    Returns:
+    - df: dataframe of epoch metadata
+    - df_summary: summary dataframe of cell type, cell ID, protocol, and number of epochs
+    - d_epoch_params: dictionary of epoch parameters for each protocol
+    """
     # Filter epochgroup by experiment_id, then join on EpochBlock, then join on Epoch
     exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')[0]
     eg_q = schema.EpochGroup() & f'experiment_id={exp_id}'
@@ -103,6 +112,17 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
                 else:
                     print(f'Parameter {param} not found in epoch_parameters for epoch_id {df.loc[idx, "epoch_id"]}')
 
+    # Get unique epoch_parameters keys for each unique protocol_id
+    d_epoch_params = {}
+    for protocol_id in df['protocol_id'].unique():
+        df_q = df[df['protocol_id'] == protocol_id]
+        epoch_params = df_q['epoch_parameters'].values[0]
+        protocol_name = df_q['protocol_name'].values[0]
+        if len(epoch_params) > 0:
+            d_epoch_params[protocol_name] = np.array(list(epoch_params.keys()))
+        else:
+            d_epoch_params[protocol_name] = np.array([])
+
     # Move id columns to the end
     ls_id_cols = ['protocol_id', 'cell_id', 'group_id', 'block_id', 'epoch_id', 'response_id']
     ls_order = [col for col in df.columns if col not in ls_id_cols] + ls_id_cols
@@ -119,7 +139,7 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
     df_summary['protocol_name'] = df_summary['protocol_name'].apply(lambda x: x.split('.')[-1])
     # display(df_summary)
     
-    return df, df_summary
+    return df, df_summary, d_epoch_params
 
 def construct_patch_data(df: pd.DataFrame, str_protocol: str, 
                          cell_id: int, ls_params: list, str_h5: str,
