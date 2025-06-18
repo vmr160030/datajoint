@@ -91,7 +91,8 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
     p_q = eb_q * schema.Protocol.proj(protocol_name='name')
     e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
     r_q = e_q * schema.Response.proj(..., epoch_id='parent_id', response_id='id') 
-    df = r_q.fetch(format='frame').reset_index()
+    s_q = r_q * schema.Stimulus.proj(epoch_id='parent_id', stim_h5path='h5path', stim_device_name='device_name')
+    df = s_q.fetch(format='frame').reset_index()
 
     # Add column for cell type if exists in cell_properties
     df['cell_type'] = ''
