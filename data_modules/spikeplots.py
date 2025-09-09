@@ -80,7 +80,7 @@ def get_rf_ells(ls_cells: list, d_sta: dict, NOISE_GRID_SIZE: float, sd_mult: fl
 def plot_rfs(spikeout: so.SpikeOutputs, ls_cells, 
              ell_color=None, ax=None, sd_mult=0.8, 
              alpha=0.6, facecolor='k', SCALING=None, b_label=False,
-             b_zoom=True, lw=1):
+             b_zoom=True, lw=1, b_display_lines=True):
     if not ax:
         f, ax = plt.subplots(figsize=(5, 5))
 
@@ -91,10 +91,11 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
     n_pad = 5
     ax.set_xlim((0-n_pad)*SCALING, (spikeout.N_WIDTH+n_pad)*SCALING)
     ax.set_ylim((0-n_pad)*SCALING, (spikeout.N_HEIGHT+n_pad)*SCALING)
-    ax.axhline(0, c='k', linewidth=1)
-    ax.axvline(0, c='k', linewidth=1)
-    ax.axhline(spikeout.N_HEIGHT*SCALING, c='k', linewidth=1)
-    ax.axvline(spikeout.N_WIDTH*SCALING, c='k', linewidth=1)
+    if b_display_lines:
+        ax.axhline(0, c='k', linewidth=1)
+        ax.axvline(0, c='k', linewidth=1)
+        ax.axhline(spikeout.N_HEIGHT*SCALING, c='k', linewidth=1)
+        ax.axvline(spikeout.N_WIDTH*SCALING, c='k', linewidth=1)
 
     if not ell_color:
         ell_color = np.random.rand(3)

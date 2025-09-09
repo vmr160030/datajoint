@@ -173,15 +173,21 @@ class SpikeOutputs(object):
                 self.d_sta[n_id]['y0'] = self.vcd.runtimemovie_params.height - self.d_sta[n_id]['y0']
             print('Flipped y0 values, so RFs are in sta matrix space with (0,0) in top left.')
 
-        # Load WN stim params for calculating any adjustment needed for STA crop.
-        self.load_wn_stim_params()
+        try:
+            # Load WN stim params for calculating any adjustment needed for STA crop.
+            self.load_wn_stim_params()
 
-        # Adjust x0 and y0 by delta_x_checks and delta_y_checks
-        print(f'Adjusting STA fit centers by {self.delta_x_checks} in X and {self.delta_y_checks} in Y to account for crop.')
-        for n_id in self.d_sta.keys():
-            self.d_sta[n_id]['x0'] += self.delta_x_checks 
-            self.d_sta[n_id]['y0'] += self.delta_y_checks 
-        
+            # Adjust x0 and y0 by delta_x_checks and delta_y_checks
+            print(f'Adjusting STA fit centers by {self.delta_x_checks} in X and {self.delta_y_checks} in Y to account for crop.')
+            for n_id in self.d_sta.keys():
+                self.d_sta[n_id]['x0'] += self.delta_x_checks 
+                self.d_sta[n_id]['y0'] += self.delta_y_checks 
+        except Exception as e:
+            print(f'Error adjusting STA fit centers: {e}')
+            print('Setting delta checks to 0 good luck.')
+            self.delta_x_checks = 0
+            self.delta_y_checks = 0
+
         sta_cell_ids = list(self.d_sta.keys())
         print(f'Loaded STA RF fits for {len(sta_cell_ids)} cells.')
 
