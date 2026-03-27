@@ -4,9 +4,13 @@ import pandas as pd
 import sys
 import spikeoutputs as so
 import spikeplots as sp
+import h5py
+import spike_detector as spdet
+from collections import namedtuple
 sys.path.append('/Users/riekelabbackup/Desktop/Vyom/gitrepos/samarjit_datajoint/next-app/api/')
 import schema
 from helpers.utils import NAS_ANALYSIS_DIR
+from IPython.display import display
 
 
 def add_param_column(df: pd.DataFrame, param: str, col: str='epoch_parameters'):
@@ -68,7 +72,16 @@ def mea_exp_summary(exp_name: str):
     return df
 
 def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
-    # # Given experiment id, get epoch data with epoch group labels
+    """
+    Given experiment id, get dataframe of epoch metadata.
+    Arguments:
+    - exp_name: name of the experiment
+    - ls_params: list of parameters to extract from epoch_parameters column
+    Returns:
+    - df: dataframe of epoch metadata
+    - df_summary: summary dataframe of cell type, cell ID, protocol, and number of epochs
+    - d_epoch_params: dictionary of epoch parameters for each protocol
+    """
     # Filter epochgroup by experiment_id, then join on EpochBlock, then join on Epoch
     exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')[0]
     eg_q = schema.EpochGroup() & f'experiment_id={exp_id}'
@@ -78,7 +91,8 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
     p_q = eb_q * schema.Protocol.proj(protocol_name='name')
     e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
     r_q = e_q * schema.Response.proj(..., epoch_id='parent_id', response_id='id') 
-    df = r_q.fetch(format='frame').reset_index()
+    s_q = r_q * schema.Stimulus.proj(epoch_id='parent_id', stim_h5path='h5path', stim_device_name='device_name')
+    df = s_q.fetch(format='frame').reset_index()
 
     # Add column for cell type if exists in cell_properties
     df['cell_type'] = ''
@@ -99,6 +113,17 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
                 else:
                     print(f'Parameter {param} not found in epoch_parameters for epoch_id {df.loc[idx, "epoch_id"]}')
 
+    # Get unique epoch_parameters keys for each unique protocol_id
+    d_epoch_params = {}
+    for protocol_id in df['protocol_id'].unique():
+        df_q = df[df['protocol_id'] == protocol_id]
+        epoch_params = df_q['epoch_parameters'].values[0]
+        protocol_name = df_q['protocol_name'].values[0]
+        if len(epoch_params) > 0:
+            d_epoch_params[protocol_name] = np.array(list(epoch_params.keys()))
+        else:
+            d_epoch_params[protocol_name] = np.array([])
+
     # Move id columns to the end
     ls_id_cols = ['protocol_id', 'cell_id', 'group_id', 'block_id', 'epoch_id', 'response_id']
     ls_order = [col for col in df.columns if col not in ls_id_cols] + ls_id_cols
@@ -107,8 +132,182 @@ def get_epoch_data_from_exp(exp_name: str, ls_params: list=None):
     # Move cell type column to the front
     ls_order = ['cell_type'] + [col for col in df.columns if col != 'cell_type']
     df = df[ls_order]
+
+    # Print summary of cell type, cell ID, protocol, and number of epochs
+    df_summary = df.groupby(['cell_type', 'cell_id', 'protocol_name']).agg({'epoch_id': 'count'}).reset_index()
+    df_summary = df_summary.rename(columns={'epoch_id': 'num_epochs'})
+    # For protocol name, split by '.' and keep last part
+    df_summary['protocol_name'] = df_summary['protocol_name'].apply(lambda x: x.split('.')[-1])
+    # display(df_summary)
     
-    return df
+    return df, df_summary, d_epoch_params
+
+def construct_patch_data(df: pd.DataFrame, str_protocol: str, 
+                         cell_id: int, ls_params: list, str_h5: str,
+                         b_spiking: bool=True, 
+                         b_load_stim: bool=False,
+                         **detector_kwargs):
+    """Given a dataframe of epoch data, a protocol name, cell id, and a list of parameters,
+    return a named tuple encapsulating data.
+     """
+    df_q = df[df['protocol_name'].str.contains(str_protocol)]
+    df_q = df_q[df_q['cell_id']==cell_id]
+    df_stim = df_q[df_q['device_name']=='Amp1']
+    df_stim = df_stim.reset_index(drop=True)
+    print(f'Found {len(df_stim)} trials for {str_protocol} and cell {cell_id}')
+
+    # Get frame monitor data
+    df_frame = df_q[df_q['device_name']=='Frame Monitor']
+    df_frame = df_frame.reset_index(drop=True)
+
+    # Add param columns
+    for param in ls_params:
+        df_stim = add_param_column(df_stim, param, col='epoch_parameters')
+    df_stim = add_param_column(df_stim, 'preTime', col='epoch_parameters')
+    df_stim = add_param_column(df_stim, 'stimTime', col='epoch_parameters')
+    df_stim = add_param_column(df_stim, 'tailTime', col='epoch_parameters')
+    df_stim = add_param_column(df_stim, 'frameRate', col='epoch_parameters')
+    
+    # Collect h5paths
+    amp_h5paths = df_stim['h5path'].values
+    frame_h5paths = df_frame['h5path'].values
+    if b_load_stim:
+        # Load stim h5paths from stimulus device
+        stim_h5paths = df_stim['stim_h5path'].values
+        stim_data = []
+    
+    # Collect data
+    amp_data = []
+    frame_data = []
+    with h5py.File(str_h5, 'r') as f:
+        for h5path in amp_h5paths:
+            trace = f[h5path]['data']['quantity']
+            amp_data.append(trace)
+        
+        for h5path in frame_h5paths:
+            trace = f[h5path]['data']['quantity']
+            frame_data.append(trace)
+
+        if b_load_stim:
+            try:
+                for h5path in stim_h5paths:
+                    trace = f[h5path]['data']['quantity']
+                    stim_data.append(trace)
+            except Exception as e:
+                print(f'Error loading stim data: {e}')
+                b_load_stim = False
+                stim_data = None
+    
+    amp_data = np.array(amp_data)
+    frame_data = np.array(frame_data)
+    print(f'Shape of data: Amp1: {amp_data.shape}, Frame Monitor: {frame_data.shape}')
+    if b_load_stim:
+        stim_data = np.array(stim_data)
+        print(f'Shape of stim data: {stim_data.shape}')
+    else:
+        stim_data = None
+
+    sample_rate = df_stim['sample_rate'].unique()
+    assert len(sample_rate) == 1, 'Multiple sample rates found in Amp1 data'
+    sample_rate = float(sample_rate[0])
+    f_sample_rates = df_frame['sample_rate'].unique()
+    if len(f_sample_rates) != 1:
+        print('Multiple sample rates found in Frame Monitor data:')
+        print(f_sample_rates)
+    else:
+        print(f'Single sample rate found in Frame Monitor data: {f_sample_rates[0]} Hz')
+    print(f'Sample rate: Amp1: {sample_rate} Hz')
+
+    if b_spiking:
+        print('Detecting spikes...')
+        spikes, amps, refs = spdet.detector(amp_data, sample_rate=sample_rate, 
+                                            **detector_kwargs)
+
+    print('Detecting frame flips...')
+    frame_times = []
+    for idx in df_frame.index:
+        trace = frame_data[idx]
+        mean = np.mean(trace)
+        crossings = np.where(np.diff(np.sign(trace - mean)))[0]
+        frame_times.append(crossings)
+    
+    # Compute avg frame rate
+    frame_rates = []
+    for idx in df_frame.index:
+        crossings = frame_times[idx]
+        if len(crossings) > 1:
+            frame_rate = 1 / np.mean(np.diff(crossings)) * float(df_frame.at[idx, 'sample_rate'])
+            frame_rates.append(frame_rate)
+        else:
+            frame_rates.append(0)
+    frame_rates = np.array(frame_rates)
+    print(f'Found unique frame rates: {np.unique(frame_rates)}')
+
+    if b_spiking:
+        # Compute stim_spikes, which is number of spikes in each trial in the stim window
+        stim_spikes = []
+        for idx in df_stim.index:
+            pre_time = df_stim.loc[idx, 'preTime']
+            stim_time = df_stim.loc[idx, 'stimTime']
+            tail_time = df_stim.loc[idx, 'tailTime']
+            onset_time = pre_time
+            offset_time = pre_time + stim_time
+            # Convert from ms to samples
+            onset_time = int(onset_time * sample_rate / 1000)
+            offset_time = int(offset_time * sample_rate / 1000)
+            # Get spikes in this time window
+            ss = spikes[idx]
+            ss = ss[(ss >= onset_time) & (ss <= offset_time)]
+            
+            stim_spikes.append(len(ss))
+        stim_spikes = np.array(stim_spikes)
+        print(f'Shape of stim_spikes: {stim_spikes.shape}')
+
+    # Make parameter dictionary
+    d_params = {}
+    for param in ls_params:
+        d_params[param] = df_stim[param].values
+    d_params['preTime'] = df_stim['preTime'].values
+    d_params['stimTime'] = df_stim['stimTime'].values
+    d_params['tailTime'] = df_stim['tailTime'].values
+    d_params['stage_frame_rate'] = df_stim['frameRate'].values[0]
+    print(f'Found stage frame rate: {d_params["stage_frame_rate"]} Hz')
+
+    # Make unique parameter dictionary
+    d_u_params = {}
+    for param in ls_params:
+        d_u_params[param] = np.unique(df_stim[param].values)
+    d_u_params['preTime'] = np.unique(df_stim['preTime'].values)
+    d_u_params['stimTime'] = np.unique(df_stim['stimTime'].values)
+    d_u_params['tailTime'] = np.unique(df_stim['tailTime'].values)
+    d_u_params['stage_frame_rate'] = np.unique(df_stim['frameRate'].values)
+
+    # Construct named tuple
+    # output = {}
+    ls_fields = ['data', 'frame_data', 'frame_times', 'frame_rates', 
+    'sample_rate','params', 'u_params']
+    if b_spiking:
+        ls_fields += ['spikes', 'spike_amps', 'spike_refs', 'stim_spikes']
+    
+    output = namedtuple('output', ls_fields)
+    output.data = amp_data
+    output.frame_data = frame_data
+    output.frame_times = frame_times
+    output.frame_rates = frame_rates
+    output.stim_data = stim_data
+    output.sample_rate = sample_rate
+    output.params = d_params
+    output.u_params = d_u_params
+
+    if b_spiking:
+        output.spikes = spikes
+        output.spike_amps = amps
+        output.spike_refs = refs
+        output.stim_spikes = stim_spikes
+    
+    return output
+
+
 
 
 def search_protocol(str_search: str):

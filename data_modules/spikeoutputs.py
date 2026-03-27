@@ -53,7 +53,7 @@ class SpikeOutputs(object):
         self.str_noise_protocol = str_noise_protocol # TODO: better method for setting this from metadata
         if int(str_experiment[:8]) < 20230926:
             self.str_noise_protocol = 'manookinlab.protocols.FastNoise'
-
+        print(f'Assuming noise protocol is {self.str_noise_protocol}.')
         self.paramsfile = paramsfile
         if dataset_name is None:
             dataset_name = str_algo
@@ -68,6 +68,9 @@ class SpikeOutputs(object):
         self.isi = {}
 
         self.ARR_CELL_IDS = np.array([], dtype=int)
+        self.GOOD_CELL_IDS = np.array([], dtype=int)
+        self.N_CELLS = 0
+        self.N_GOOD_CELLS = 0
 
         # Load classifications if provided
         if str_classification is not None:
@@ -104,9 +107,31 @@ class SpikeOutputs(object):
     def get_type_ids(self, str_type):
         return self.types.d_main_IDs[str_type]
     
+    def load_wn_stim_params(self):
+        c_data = sd.Dataset(self.str_experiment)
+        protocol = c_data.M.search_data_file(self.str_noise_protocol, file_name=self.ls_noise_filenames)
+        param_names = ['numXChecks', 'numYChecks']#, 'stixelSize', 'pre_frames', 'unique_frames', 'repeat_frames',
+        #'numXStixels', 'numYStixels']
+        params, unique_params = c_data.M.get_stimulus_parameters(protocol, param_names)
+        print(f'Found unique WN stim parameters: {unique_params}')
+        num_x_checks = int(unique_params['numXChecks'][0])
+        num_y_checks = int(unique_params['numYChecks'][0])
+        sta_height = self.N_HEIGHT
+        sta_width = self.N_WIDTH
+        delta_x_checks = int((num_x_checks - sta_width) / 2)
+        delta_y_checks = int((num_y_checks - sta_height) / 2)
+        self.N_HEIGHT = num_y_checks
+        self.N_WIDTH = num_x_checks
+        self.delta_x_checks = delta_x_checks
+        self.delta_y_checks = delta_y_checks
+
+        # Compute pixels per stixel
+        # self.pixels_per_stixel = int(round(self.))
+        
+    
     def load_sta_from_params(self, paramsfile: str=None, dataset_name: str=None, paramsmatfile: str=None,
                              isi_bin_edges=None, load_ei=False, load_neurons=True, load_sta=False,
-                             b_flip_y=False):
+                             b_flip_y=True):
         # b_flip_y is for flipping y location of RFs, to get in matrix space (0,0) at top left.
         if not paramsfile:
             paramsfile = self.paramsfile
@@ -121,40 +146,65 @@ class SpikeOutputs(object):
         self.vcd = vl.load_vision_data(analysis_path=os.path.dirname(paramsfile), dataset_name=dataset_name, 
                                        include_params=True, include_runtimemovie_params=True, include_ei=load_ei,
                                        include_neurons=load_neurons, include_sta=load_sta)
-        if load_neurons:
+        if hasattr(self.vcd, 'runtimemovie_params'):
             self.N_WIDTH = self.vcd.runtimemovie_params.width
             self.N_HEIGHT = self.vcd.runtimemovie_params.height
         
             # This is used to translate noise stixel space to microns.
             self.NOISE_GRID_SIZE = self.vcd.runtimemovie_params.micronsPerStixelX # Typically 30 microns. 
+            print(f'Found STA info: N_WIDTH={self.N_WIDTH}, N_HEIGHT={self.N_HEIGHT}, NOISE_GRID_SIZE={self.NOISE_GRID_SIZE}.')
         else:
             self.N_WIDTH = 100.0
             self.N_HEIGHT = 75.0 
             self.NOISE_GRID_SIZE = 30
+            print(f'Using default STA info: N_WIDTH={self.N_WIDTH}, N_HEIGHT={self.N_HEIGHT}, NOISE_GRID_SIZE={self.NOISE_GRID_SIZE}.')
 
         # Load RF fit parameters from .params file
-        # Get only IDs of cells that have RF fits
         d_sta = {}
         for n_id in self.vcd.main_datatable.keys():
+            # Get only IDs of cells that have RF fits
             if 'x0' in self.vcd.main_datatable[n_id].keys():
-                d_sta[n_id] = self.vcd.main_datatable[n_id]
+                d_sta[n_id] = self.vcd.main_datatable[n_id].copy()
         self.d_sta = d_sta
+
+        # Apply flip
+        if b_flip_y:
+            for n_id in self.d_sta.keys():
+                self.d_sta[n_id]['y0'] = self.vcd.runtimemovie_params.height - self.d_sta[n_id]['y0']
+            print('Flipped y0 values, so RFs are in sta matrix space with (0,0) in top left.')
+
+        try:
+            # Load WN stim params for calculating any adjustment needed for STA crop.
+            self.load_wn_stim_params()
+
+            # Adjust x0 and y0 by delta_x_checks and delta_y_checks
+            print(f'Adjusting STA fit centers by {self.delta_x_checks} in X and {self.delta_y_checks} in Y to account for crop.')
+            for n_id in self.d_sta.keys():
+                self.d_sta[n_id]['x0'] += self.delta_x_checks 
+                self.d_sta[n_id]['y0'] += self.delta_y_checks 
+        except Exception as e:
+            print(f'Error adjusting STA fit centers: {e}')
+            print('Setting delta checks to 0 good luck.')
+            self.delta_x_checks = 0
+            self.delta_y_checks = 0
+
         sta_cell_ids = list(self.d_sta.keys())
         print(f'Loaded STA RF fits for {len(sta_cell_ids)} cells.')
-
-        if b_flip_y:
-            for n_ID in self.d_sta.keys():
-                self.d_sta[n_ID]['y0'] = self.N_HEIGHT-self.d_sta[n_ID]['y0']
-            print('Flipped y0 values, so RFs are in sta matrix space with (0,0) in top left.')
 
         # Load _params.mat. 
         if paramsmatfile:
             print(f'Loading STA params from {paramsmatfile}...')
             self.d_params = hdf5storage.loadmat(paramsmatfile)
+
+            # Apply correction to centers? Then would need to pad the spatial maps.
+            # For now leaving that out.
+            # self.d_params['hull_parameters'][:,0] += self.delta_x_checks
+            # self.d_params['hull_parameters'][:,1] += self.delta_y_checks
                 
             # Get spatial maps of cells
             self.d_sta_spatial = {}
             for idx_ID, n_ID in enumerate(sta_cell_ids):
+                # TODO pad spatial maps to match N_HEIGHT and N_WIDTH
                 # Load red channel spatial map. Cell ID index in vcd should be same as in _params.mat
                 self.d_sta_spatial[n_ID] = self.d_params['spatial_maps'][idx_ID, :, :, 0]
             
@@ -162,13 +212,10 @@ class SpikeOutputs(object):
             self.d_sta_convex_hull = {}
             for idx_ID, n_ID in enumerate(sta_cell_ids):
                 self.d_sta_convex_hull[n_ID] = self.d_params['hull_vertices'][idx_ID, :,:]
+                # TODO: Add delta_x_checks and delta_y_checks to convex hull vertices
 
             print(f'Loaded STA params for {len(self.d_sta_spatial.keys())} cells.')
-
-            if b_flip_y:
-                for n_ID in self.d_sta_spatial.keys():
-                    self.d_sta_spatial[n_ID] = self.d_sta_spatial[n_ID][::-1, :]
-                    self.d_sta_convex_hull[n_ID] = self.d_sta_convex_hull[n_ID][::-1, :]
+            print('Note: Accounting for the crop is not applied for the .mat params!')
                 
         ids = np.array(sta_cell_ids).astype(int)
         self.ARR_CELL_IDS = np.union1d(ids, self.ARR_CELL_IDS)
@@ -180,36 +227,6 @@ class SpikeOutputs(object):
         if isi_bin_edges is not None:
             print(f'Loading WN ISI...')
             self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
-
-    # def load_sta(self, df_sta, isi_bin_edges=None):
-    #     print(f'Loading STA from datajoint')
-        
-    #     self.N_WIDTH = df_sta['noise_width'].iloc[0]
-    #     self.N_HEIGHT = df_sta['noise_height'].iloc[0]
-    #     self.NOISE_GRID_SIZE = df_sta['noise_grid_size'].iloc[0] # Typically 30 microns. 
-        
-    #     # Load RF fit parameters from datajoint
-    #     d_keymap = {'x0': 'x0', 'y0': 'y0', 'sigma_x': 'SigmaX', 'sigma_y': 'SigmaY', 'theta': 'Theta',
-    #         'red_time_course': 'RedTimeCourse', 'green_time_course': 'GreenTimeCourse', 'blue_time_course': 'BlueTimeCourse'}
-    #     d_sta = {}
-    #     for n_id in df_sta.index:
-    #         d_sta[n_id] = {}
-    #         for str_df, str_vcd in d_keymap.items():
-    #             d_sta[n_id][str_vcd] = df_sta.loc[n_id, str_df]
-
-    #     self.d_sta = d_sta
-    #     sta_cell_ids = list(self.d_sta.keys())
-    #     print(f'Loaded STA for {len(sta_cell_ids)} cells.')
-                
-    #     self.ARR_CELL_IDS = np.union1d(np.array(sta_cell_ids), self.ARR_CELL_IDS)
-    #     self.GOOD_CELL_IDS = self.ARR_CELL_IDS.copy()
-    #     self.N_CELLS = len(self.ARR_CELL_IDS)
-    #     self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
-
-    #     # Load STA ISI
-    #     if isi_bin_edges is not None:
-    #         print(f'Loading STA ISI...')
-    #         self.load_isi(self.str_noise_protocol, file_names=self.ls_noise_filenames, bin_edges=isi_bin_edges)
         
     def load_protocol_vcd(self, chunk_dir, dataset_name):
         """Load protocol VCD. 
@@ -304,11 +321,11 @@ class SpikeOutputs(object):
             # Multiple Sp/s by bin_dt in s to get total spikes
             spike_counts[idx] = np.sum(spike_dict[n_id]) * n_bin_dt / 1000
 
-        self.stim = {'params': params, 'unique_params': unique_params, 
+        self.stim['psth'] = {'params': params, 'unique_params': unique_params, 
              'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
              'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
              'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
-        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
+        self.spikes['psth'] =  {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
                        'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
                        'total_spike_counts': spike_counts}
         
@@ -402,11 +419,11 @@ class SpikeOutputs(object):
                 fr = spike_dict[n_id][n_epoch]
                 psth[n_epoch, idx, :] = fr[:n_total_pts]
 
-        self.stim = {'params': params, 'unique_params': unique_params, 
+        self.stim['psth'] = {'params': params, 'unique_params': unique_params, 
                 'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
                 'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
                 'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
-        self.spikes = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
+        self.spikes['psth'] = {'spike_dict': spike_dict, 'cluster_id': cluster_id, 
                         'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
                         'total_spike_counts': total_sc, 'psth': psth}
         
@@ -418,7 +435,7 @@ class SpikeOutputs(object):
         self.N_GOOD_CELLS = len(self.GOOD_CELL_IDS)
 
     def load_spike_times(self, str_protocol, ls_param_names, 
-                         bin_rate=100.0, isi_bin_edges=np.linspace(0, 300, 601),
+                         time_unit_s=1/1000.0, isi_bin_edges=np.linspace(0, 300, 601),
                          b_load_isi=True, ls_filenames=None):
         """
         Load spike times and associated parameters for a given protocol.
@@ -442,13 +459,13 @@ class SpikeOutputs(object):
         spike_times, cluster_id, params, unique_params, pre_pts, stim_pts, tail_pts = c_data.get_spike_times_and_parameters(
             protocolStr=str_protocol, groupStr=None, param_names=ls_param_names, 
             sort_algorithm=self.str_algo, file_name=self.ls_filenames, 
-            bin_rate=bin_rate, sample_rate=20000)
+            bin_rate=1/time_unit_s, sample_rate=20000)
     
         params = dict_list_to_array(params)
         unique_params = dict_list_to_array(unique_params)
     
         n_epochs = spike_times.shape[1]
-        n_bin_dt = 1 / bin_rate * 1000  # in ms
+        n_dt_ms = time_unit_s * 1000 # in ms
     
         # Check that pre_pts, stim_pts, tail_pts all have a uniform value
         for pts in [pre_pts, stim_pts, tail_pts]:
@@ -460,13 +477,13 @@ class SpikeOutputs(object):
         n_tail_pts = int(tail_pts[0])
         n_total_pts = n_pre_pts + n_stim_pts + n_tail_pts
     
-        self.stim = {'params': params, 'unique_params': unique_params, 
+        self.stim['spike_times'] = {'params': params, 'unique_params': unique_params, 
                      'n_epochs': n_epochs, 'n_pre_pts': n_pre_pts, 'n_stim_pts': n_stim_pts, 'n_tail_pts': n_tail_pts,
-                     'n_total_pts': n_total_pts, 'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt,
+                     'n_total_pts': n_total_pts, 'bin_rate': 1/time_unit_s, 'n_bin_dt': n_dt_ms,
                      'ls_param_names': ls_param_names, 'str_protocol': str_protocol}
-        self.spikes = {'spike_dict': spike_times, 'cluster_id': cluster_id, 
-                       'bin_rate': bin_rate, 'n_bin_dt': n_bin_dt}
-    
+        self.spikes['spike_times'] = {'spike_times': spike_times, 'cluster_id': cluster_id, 
+                       'bin_rate': 1/time_unit_s, 'n_bin_dt': n_dt_ms}
+
         ids = np.array(cluster_id).astype(int)
         self.ARR_CELL_IDs = np.union1d(self.ARR_CELL_IDS, ids)
         self.GOOD_CELL_IDS = np.intersect1d(self.GOOD_CELL_IDS, ids)
@@ -494,14 +511,14 @@ class SpikeOutputs(object):
         else:
             print(f'ISI for {str_protocol} already loaded.')
 
-    def print_stim_summary(self):
+    def print_stim_summary(self, sp_key):
         # Print stim summary from stim dictionary
-        n_bin_dt = self.stim['n_bin_dt']
-        print(f'Epoch length: {self.stim["n_total_pts"] * n_bin_dt:.2f} ms')
-        print('Total epochs: ' + str(self.stim['n_epochs']))
-        print(f'pre: {self.stim["n_pre_pts"] * n_bin_dt:.2f} ms; stim: {self.stim["n_stim_pts"] * n_bin_dt:.2f} ms; tail: {self.stim["n_tail_pts"] * n_bin_dt:.2f} ms')
-        print('pre pts: ' + str(self.stim['n_pre_pts']) + '; stim pts: ' + str(self.stim['n_stim_pts']) + '; tail pts: ' + str(self.stim['n_tail_pts']))
-        print(f'bin rate: {self.spikes["bin_rate"]:.2f} Hz; bin dt: {n_bin_dt:.2f} ms')
+        n_bin_dt = self.stim[sp_key]['n_bin_dt']
+        print(f'Epoch length: {self.stim[sp_key]["n_total_pts"] * n_bin_dt:.2f} ms')
+        print('Total epochs: ' + str(self.stim[sp_key]['n_epochs']))
+        print(f'pre: {self.stim[sp_key]["n_pre_pts"] * n_bin_dt:.2f} ms; stim: {self.stim[sp_key]["n_stim_pts"] * n_bin_dt:.2f} ms; tail: {self.stim[sp_key]["n_tail_pts"] * n_bin_dt:.2f} ms')
+        print('pre pts: ' + str(self.stim[sp_key]['n_pre_pts']) + '; stim pts: ' + str(self.stim[sp_key]['n_stim_pts']) + '; tail pts: ' + str(self.stim[sp_key]['n_tail_pts']))
+        print(f'bin rate: {self.spikes[sp_key]["bin_rate"]:.2f} Hz; bin dt: {n_bin_dt:.2f} ms')
         
     def save_pkl(self, str_path: str=None):
         if not str_path:

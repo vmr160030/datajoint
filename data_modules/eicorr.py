@@ -21,7 +21,7 @@ def sort_electrode_map(electrode_map: np.ndarray) -> np.ndarray:
     electrode_map (numpy.ndarray): The electrode locations of shape (512, 2).
 
     Returns:
-    numpy.ndarray: The reshaped EI matrix of shape (16, 32, 201).
+    numpy.ndarray: Sorted indices of the electrodes (512,). 
     """
     sorted_indices = np.lexsort((electrode_map[:, 0], electrode_map[:, 1]))
     
@@ -319,7 +319,7 @@ def get_match_IDs(mapper: MapAcrossChunk, data: so.SpikeOutputs, ls_types: list,
 
 def save_and_remap_typing_data(str_new_class_txt: str, str_mapping_txt: str, 
                                mapper: MapAcrossChunk, data: so.SpikeOutputs,
-                       ls_types: list, n_thresh: float=0.8):
+                               ls_types: list, n_thresh: float=0.8):
     d_match_IDs, arr_matches = get_match_IDs(mapper, data, ls_types, n_thresh)
     np.savetxt(str_new_class_txt, arr_matches, fmt='%s', delimiter='  ')
     print(f'Saved matched typing file to {str_new_class_txt}')
@@ -367,7 +367,7 @@ def load_and_remap_typing_data(str_new_class_txt: str, str_mapping_txt: str,
     data.remap_sta_vcd(d_match_IDs)
     print('Updated typing data and remapped SpikeOutputs sta data.')
 
-def get_top_electrodes(ei_map, n_ID, vcd, n_interval=2, n_markers=5):
+def get_top_electrodes(ei_map, n_ID, vcd, n_interval=2, n_markers=5, b_sort=True):
     # Reshape EI timeseries
     ei = vcd.get_ei_for_cell(n_ID).ei
     sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
@@ -379,13 +379,14 @@ def get_top_electrodes(ei_map, n_ID, vcd, n_interval=2, n_markers=5):
     top_idx = ei_map_sidx[::n_interval][:n_markers]
 
     # Sort top_idx by argmin of EI time series
-    amin_ei_ts = np.zeros(n_markers)
-    for i in range(n_markers):
-        y, x = np.unravel_index(top_idx[i], ei_map.shape)
-        # ei_ts = ei_grid[:, y, x]
-        ei_ts = ei[y, x, :]
-        amin_ei_ts[i] = np.argmin(ei_ts)
-    top_idx = top_idx[np.argsort(amin_ei_ts)]
+    if b_sort:
+        amin_ei_ts = np.zeros(n_markers)
+        for i in range(n_markers):
+            y, x = np.unravel_index(top_idx[i], ei_map.shape)
+            # ei_ts = ei_grid[:, y, x]
+            ei_ts = ei[y, x, :]
+            amin_ei_ts[i] = np.argmin(ei_ts)
+        top_idx = top_idx[np.argsort(amin_ei_ts)]
 
     return top_idx
 

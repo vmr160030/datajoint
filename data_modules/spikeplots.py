@@ -80,15 +80,18 @@ def get_rf_ells(ls_cells: list, d_sta: dict, NOISE_GRID_SIZE: float, sd_mult: fl
 def plot_rfs(spikeout: so.SpikeOutputs, ls_cells, 
              ell_color=None, ax=None, sd_mult=0.8, 
              alpha=0.6, facecolor='k', SCALING=None, b_label=False,
-             b_zoom=True, lw=1):
+             b_zoom=True, lw=1, b_display_lines=True):
     if not ax:
         f, ax = plt.subplots(figsize=(5, 5))
 
     if SCALING is None:
         SCALING = spikeout.NOISE_GRID_SIZE
-        n_pad = 5
-        ax.set_xlim((0-n_pad)*SCALING, (spikeout.N_WIDTH+n_pad)*SCALING)
-        ax.set_ylim((0-n_pad)*SCALING, (spikeout.N_HEIGHT+n_pad)*SCALING)
+        print(f'Setting SCALING to {SCALING} per WN check.')
+    
+    n_pad = 5
+    ax.set_xlim((0-n_pad)*SCALING, (spikeout.N_WIDTH+n_pad)*SCALING)
+    ax.set_ylim((0-n_pad)*SCALING, (spikeout.N_HEIGHT+n_pad)*SCALING)
+    if b_display_lines:
         ax.axhline(0, c='k', linewidth=1)
         ax.axvline(0, c='k', linewidth=1)
         ax.axhline(spikeout.N_HEIGHT*SCALING, c='k', linewidth=1)
@@ -136,7 +139,7 @@ def plot_rfs(spikeout: so.SpikeOutputs, ls_cells,
 def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP', 'OnM', 'SBC'],
                     ls_colors = sns.color_palette(), axs=None, ls_facecolors=None, alpha=0.6,
                     b_ticks_off=True, ls_RGC_labels=None, d_IDs=None,
-                    b_zoom=False, sd_mult=0.8, scaling=None, n_scalebar=100):
+                    b_zoom=False, sd_mult=0.8, scaling=None, b_scalebar=True, n_scalebar=100, lw=1):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
@@ -147,6 +150,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
     ncols = len(ls_RGC_keys)
     if axs is None:
         f, axs = plt.subplots(ncols=ncols, figsize=(ncols*8, 5), sharey=True, sharex=True)
+        f.patch.set_facecolor('none')
         # f.patch.set_facecolor('none')
         # f.text(0.1, 0.98, data.str_experiment, fontsize=12)
 
@@ -171,7 +175,7 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
         
         ax = axs[i]
         _, ells = plot_rfs(data, ls_cells, ell_color=ls_colors[i], facecolor=ls_facecolors[i], 
-                           ax=ax, alpha=alpha, b_zoom=b_zoom, sd_mult=sd_mult, SCALING=scaling)
+                           ax=ax, alpha=alpha, b_zoom=b_zoom, sd_mult=sd_mult, SCALING=scaling, lw=lw)
         ax.set_title(ls_label+f' (n={len(ls_cells)}) RFs')
 
         # Get current axis limits
@@ -197,20 +201,89 @@ def plot_type_rfs(data: so.SpikeOutputs, ls_RGC_keys=None,#['OffP', 'OffM', 'OnP
         ax.set_facecolor('none')
     
 
-    # Add scalebar
-    offset = 0.08*(x1-x0)
-    for ax in axs:
-        # ax.plot([100, 100+n_scalebar], [100, 100], c='k', linewidth=2)
-        # ax.text(100+n_scalebar/2, 100-10, f'{n_scalebar} um', horizontalalignment='center')
-        ax.plot([x0+offset, x0+offset+n_scalebar], [y0+offset, y0+offset], c='k', linewidth=2)
-        ax.plot([x0+offset, x0+offset], [y0+offset, y0+offset+n_scalebar], c='k', linewidth=2)
-        ax.text(x0+offset+n_scalebar/2, y0+offset*0.9, f'{n_scalebar} um', horizontalalignment='center', verticalalignment='top')
+    if b_scalebar:
+        # Add scalebar
+        offset = 0.08*(x1-x0)
+        for ax in axs:
+            # ax.plot([100, 100+n_scalebar], [100, 100], c='k', linewidth=2)
+            # ax.text(100+n_scalebar/2, 100-10, f'{n_scalebar} um', horizontalalignment='center')
+            ax.plot([x0+offset, x0+offset+n_scalebar], [y0+offset, y0+offset], c='k', linewidth=2)
+            ax.plot([x0+offset, x0+offset], [y0+offset, y0+offset+n_scalebar], c='k', linewidth=2)
+            ax.text(x0+offset+n_scalebar/2, y0+offset*0.9, f'{n_scalebar} um', horizontalalignment='center', verticalalignment='top')
 
     return axs
 
+def plot_type_tc(data: so.SpikeOutputs, str_RGC_key=None,
+                  ax=None, ls_colors = None, alpha=0.6, b_plot_mean=True, 
+                  str_RGC_label=None, lw=1, n_dt = 1/120*1e3,
+                  b_plot_blue=True):
+
+    # Plot time courses
+    if ax is None:
+        f, ax = plt.subplots(figsize=(5, 5), sharey=True, sharex=True)
+        # f.text(0.1, 0.98, data.str_experiment, fontsize=12)
+        f.patch.set_facecolor('none')
+    
+    if ls_colors is None:
+        ls_colors = ['k', 'gray']
+
+    ls_cells = data.types.d_main_IDs[str_RGC_key]
+    str_label = str_RGC_label
+
+    ax.axhline(0, c='k', linewidth=1)
+
+    # Remove any cells that don't have keys in data.d_sta
+    ls_cells = [c for c in ls_cells if c in data.d_sta.keys()]
+    
+    n_pts = len(data.d_sta[ls_cells[0]]['RedTimeCourse'])
+    if n_dt is not None:
+        x = np.arange(n_pts)*n_dt
+        x = -x[::-1]
+    else:
+        x = np.arange(n_pts)
+    
+    if b_plot_mean:
+        tcs = np.array([data.d_sta[n_ID]['RedTimeCourse'] for n_ID in ls_cells])
+        mean = np.mean(tcs, axis=0)
+        std = np.std(tcs, axis=0)
+        ax.plot(x, mean, c=ls_colors[0], linewidth=lw)
+        ax.fill_between(x, 
+                            mean-std, mean+std, alpha=alpha, color=ls_colors[0])
+
+        if b_plot_blue:
+            tcs = np.array([data.d_sta[n_ID]['BlueTimeCourse'] for n_ID in ls_cells])
+
+            mean = np.mean(tcs, axis=0)
+            std = np.std(tcs, axis=0)
+            ax.plot(x, mean, c=ls_colors[1], linewidth=lw)
+            ax.fill_between(x,
+                                mean-std, mean+std, alpha=alpha, color=ls_colors[1])
+
+    else:    
+        for n_ID in ls_cells:
+            ax.plot(x, data.d_sta[n_ID]['RedTimeCourse'], c=ls_colors[0], alpha=alpha, linewidth=lw)
+            if b_plot_blue:
+                ax.plot(x, data.d_sta[n_ID]['BlueTimeCourse'], c=ls_colors[1], alpha=alpha, linewidth=lw)
+
+    
+    ax.set_title(str_label+f' (n={len(ls_cells)}) timecourses')
+    n_spacing = 10
+    ax.set_xlim(right=0)
+    if n_dt is not None:
+        ax.set_xlabel('Time (ms)')
+        # xticks = np.round(np.arange(-n_pts*n_dt, 0, n_dt*n_spacing), decimals=-1)
+        xticks = np.arange(-500, 10, 100)
+        ax.set_xticks(xticks)
+    else:
+        ax.set_xlabel('Time (frames)')
+        ax.set_xticks(np.arange(0, n_pts, n_spacing))
+
+    
+
 def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
                   axs=None, ls_colors = None, alpha=0.6, b_plot_mean=True, 
-                  ls_RGC_labels=None, lw=1, d_IDs=None, n_dt = 1/120*1e3):
+                  ls_RGC_labels=None, lw=1, d_IDs=None, n_dt = 1/120*1e3,
+                  b_plot_blue=True):
     # If d_IDs is None, use data.types.d_main_IDs
     if d_IDs is None:
         d_IDs = data.types.d_main_IDs
@@ -218,8 +291,9 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
         ls_RGC_keys = list(d_IDs.keys())
 
     # Plot time courses
+    ncols = len(ls_RGC_keys)
     if axs is None:
-        f, axs = plt.subplots(ncols=len(ls_RGC_keys), figsize=(len(ls_RGC_keys)*5, 5), sharey=True, sharex=True)
+        f, axs = plt.subplots(ncols=ncols, figsize=(len(ls_RGC_keys)*7, 5), sharey=True, sharex=True)
         # f.text(0.1, 0.98, data.str_experiment, fontsize=12)
         f.patch.set_facecolor('none')
 
@@ -228,65 +302,21 @@ def plot_type_tcs(data: so.SpikeOutputs, ls_RGC_keys=None,
         axs = np.array([axs])
     
     if ls_colors is None:
-        ls_colors = ['k', 'gray']#['C1', 'C0']
+        ls_colors = [['k', 'gray']]*ncols#['C1', 'C0']
 
     if ls_RGC_labels is None:
         ls_RGC_labels = ls_RGC_keys
 
     for i, str_key in enumerate(ls_RGC_keys):
-        ls_cells = data.types.d_main_IDs[str_key]
-        str_label = ls_RGC_labels[i]
-
-        axs[i].axhline(0, c='k', linewidth=1)
-
-        # Remove any cells that don't have keys in data.d_sta
-        ls_cells = [c for c in ls_cells if c in data.d_sta.keys()]
-        
-        n_pts = len(data.d_sta[ls_cells[0]]['RedTimeCourse'])
-        if n_dt is not None:
-            x = np.arange(n_pts)*n_dt
-            x = -x[::-1]
-        else:
-            x = np.arange(n_pts)
-        
-        if b_plot_mean:
-            tcs = np.array([data.d_sta[n_ID]['RedTimeCourse'] for n_ID in ls_cells])
-            mean = np.mean(tcs, axis=0)
-            std = np.std(tcs, axis=0)
-            axs[i].plot(x, mean, c=ls_colors[0], linewidth=lw)
-            axs[i].fill_between(x, 
-                                mean-std, mean+std, alpha=alpha, color=ls_colors[0])
-
-            tcs = np.array([data.d_sta[n_ID]['BlueTimeCourse'] for n_ID in ls_cells])
-
-            mean = np.mean(tcs, axis=0)
-            std = np.std(tcs, axis=0)
-            axs[i].plot(x, mean, c=ls_colors[1], linewidth=lw)
-            axs[i].fill_between(x,
-                                mean-std, mean+std, alpha=alpha, color=ls_colors[1])
-
-        else:    
-            for n_ID in ls_cells:
-                axs[i].plot(x, data.d_sta[n_ID]['RedTimeCourse'], c=ls_colors[0], alpha=alpha, linewidth=lw)
-                axs[i].plot(x, data.d_sta[n_ID]['BlueTimeCourse'], c=ls_colors[1], alpha=alpha, linewidth=lw)
-
-        
-        axs[i].set_title(str_label+f' (n={len(ls_cells)}) timecourses')
-        n_spacing = 10
-        axs[i].set_xlim(right=0)
-        if n_dt is not None:
-            axs[i].set_xlabel('Time (ms)')
-            # xticks = np.round(np.arange(-n_pts*n_dt, 0, n_dt*n_spacing), decimals=-1)
-            xticks = np.arange(-500, 10, 100)
-            axs[i].set_xticks(xticks)
-        else:
-            axs[i].set_xlabel('Time (frames)')
-            axs[i].set_xticks(np.arange(0, n_pts, n_spacing))
+        plot_type_tc(data, str_RGC_key=str_key, ax=axs[i], ls_colors=ls_colors[i], alpha=alpha,
+                      b_plot_mean=b_plot_mean, str_RGC_label=ls_RGC_labels[i], lw=lw, n_dt=n_dt,
+                      b_plot_blue=b_plot_blue)
 
     axs[0].set_ylabel('STA (a.u.)')
     # Set axs and figure bg transparent
     for ax in axs:
         ax.set_facecolor('none')
+        f.patch.set_facecolor('none')
         ax.grid(True)
     
     return axs
